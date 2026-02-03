@@ -1,0 +1,28 @@
+# Web API
+fastapi
+uvicorn
+
+# RAG framework
+langchain
+langchain-community
+langchain_ollama
+langchain-qdrant
+
+# Vector database
+qdrant-client
+
+# LLM (local)
+ollama
+
+# Document loading
+pypdf
+unstructured
+pdfplumber
+
+# Utilities
+python-dotenv
+python-multipart
+python-docx
+python-pptx
+pandas
+openpyxl
