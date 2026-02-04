@@ -96,16 +96,15 @@ def load_excel(file_path: str) -> List[str]:
 def load_csv(file_path: str) -> List[str]:
     df = pd.read_csv(file_path)
 
-    # Drop empty rows/columns
-    df = df.dropna(how="all").dropna(axis=1, how="all")
-
     if df.empty:
         return []
 
     # Convert rows to readable text
-    rows = df.astype(str).apply(
-        lambda row: " | ".join(row), axis=1
-    ).tolist()
+    rows = (
+        df.fillna("").astype(str).apply(
+            lambda row: " | ".join(row), axis=1
+        ).tolist()
+    )
 
     page_text = "\n".join(rows)
     return [page_text]
