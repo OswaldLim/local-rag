@@ -43,7 +43,10 @@ Setup Instructions:
 
    Build and start containers:
 
-   docker-compose up -d --build
+   docker compose up -d --build
+
+   Debugging/checking logs:
+   docker logs -f <container_name>
 
    Services included:
 

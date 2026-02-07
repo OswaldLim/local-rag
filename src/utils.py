@@ -1,9 +1,9 @@
 import os
 import pandas as pd
-from pypdf import PdfReader
 from typing import List
 from docx import Document
 from pptx import Presentation
+from .load_pdf import load_pdf
 
 def load_document(file_path: str) -> List[str]:
     ext = os.path.splitext(file_path)[1].lower()
@@ -23,12 +23,6 @@ def load_document(file_path: str) -> List[str]:
     else:
         raise ValueError(f"Unsupported file type: {ext}")
 
-
-def load_pdf(file_path: str) -> List[str]:
-    # Load PDF and return list of pages as text
-    reader = PdfReader(file_path)
-    pages = [page.extract_text() for page in reader.pages]
-    return pages
 
 def load_doc(file_path: str) -> List[str]:
     doc = Document(file_path)
@@ -101,9 +95,10 @@ def load_csv(file_path: str) -> List[str]:
 
     # Convert rows to readable text
     rows = (
-        df.fillna("").astype(str).apply(
-            lambda row: " | ".join(row), axis=1
-        ).tolist()
+        df.fillna("")
+        .astype(str)
+        .agg(" | ".join, axis=1)
+        .tolist()
     )
 
     page_text = "\n".join(rows)
