@@ -4,6 +4,7 @@ from langchain_ollama import OllamaEmbeddings
 from langchain_ollama import OllamaLLM
 from langchain_qdrant import QdrantVectorStore
 import uuid
+from datetime import datetime
 
 embedding_model = OllamaEmbeddings(
     model="nomic-embed-text",
@@ -20,11 +21,15 @@ COLLECTION_NAME = "rag_docs"
 
 qdrant.delete_collection(collection_name=COLLECTION_NAME)
 
-if COLLECTION_NAME not in [c.name for c in qdrant.get_collections().collections]:
-    qdrant.recreate_collection(
-        collection_name=COLLECTION_NAME,
-        vectors_config={"size": 768, "distance": "Cosine"}
-    )
+def check_qdrant_exist():
+    if COLLECTION_NAME not in [c.name for c in qdrant.get_collections().collections]:
+        qdrant.recreate_collection(
+            collection_name=COLLECTION_NAME,
+            vectors_config={"size": 768, "distance": "Cosine"}
+        )
+        return True
+    
+    return False
 
 vector_store = QdrantVectorStore(
     client=qdrant,
@@ -39,12 +44,12 @@ def ingest_document(doc_name: str, text_chunks: list):
         points.append(PointStruct(
             id=str(uuid.uuid4()),
             vector=vector,
-            payload={"text":chunk, "doc_name":doc_name}
+            payload={"text":chunk, "doc_name":doc_name, "timestamps":datetime.now()}
         ))
     qdrant.upsert(collection_name=COLLECTION_NAME, points=points)
     return len(points)
 
-def query_rag(query: str, top_k: int = 5) -> str:
+def query_rag(query: str, top_k: int = 10) -> str:
     # Embed query
     query_vector = embedding_model.embed_query(query)
 
@@ -56,40 +61,12 @@ def query_rag(query: str, top_k: int = 5) -> str:
 
 
     list_of_scored_points = [tups for scored_points in result for tups in scored_points][1]
-    context = "\n\n".join([text.payload["text"] for text in list_of_scored_points])
+    context = "\n\n".join([f"text: {text.payload["text"]}, file: {text.payload["doc_name"]}" for text in list_of_scored_points])
 
 
-    prompt = f"Answer the following question based on the context below:\n\nContext:\n{context}\n\nQuestion: {query}\nAnswer:"
+    prompt = f"Answer the following question based on the context below:\n\nContext:\n{context}\n\nQuestion: {query}\nshow the doc_name at the end of the answer as reference - there can be multiple doc_names - only if you know else say you don't know if no context is provided\nAnswer:"
 
     response = llm.invoke(prompt)
 
     return response
 
-
-# import utils
-
-# if __name__ == "__main__":
-#     file = "C:\\Users\\Lenovo\\Desktop\\SCHOOL\\Personal\\Internship\\local_rag_docker\\temp_3 Logic (3A) [student].pdf"
-
-#     file2 = "C:\\Users\\Lenovo\\Desktop\\SCHOOL\\Year 1\\Math\\Lecture Slides\\1 Mathematical Proof (1A)(v2) [Student].pdf"
-
-#     pages = utils.load_pdf(file)
-#     all_chunks = []
-#     for page in pages:
-#         all_chunks.extend(utils.chunk_text(page))
-    
-#     count = ingest_document(file, all_chunks)
-#     dictionary = {"message": f"Ingested {count} chunks from {file}"}
-#     print(dictionary)
-
-#     pages = utils.load_pdf(file2)
-#     all_chunks = []
-#     for page in pages:
-#         all_chunks.extend(utils.chunk_text(page))
-#     count = ingest_document(file2, all_chunks)
-#     dictionary = {"message": f"Ingested {count} chunks from {file2}"}
-#     print(dictionary)
-
-
-#     answer = query_rag("What is propositional logic")
-#     print({"answer": answer})

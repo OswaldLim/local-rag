@@ -10,7 +10,7 @@ def load_document(file_path: str) -> List[str]:
 
     if ext == ".pdf":
         return load_pdf(file_path)
-    elif ext in [".docx"]:
+    elif ext in ".docx":
         return load_doc(file_path)
     elif ext == ".txt":
         return load_txt(file_path)
@@ -125,11 +125,11 @@ def load_txt(file_path: str) -> List[str]:
     return pages
 
 
-def chunk_text(text: str, chunk_size: int = 500, overlap: int = 50) -> List[str]:
+def chunk_text(text: str, chunk_size: int = 500, overlap: int = 100, chunk_type: str = "text") -> List[str]:
     chunks = []
     start = 0
     while start < len(text):
         end = start + chunk_size
-        chunks.append(text[start:end])
+        chunks.append({"text": text[start:end], "chunk_type": chunk_type})
         start = end - overlap
     return chunks

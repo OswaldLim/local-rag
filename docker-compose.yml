@@ -23,6 +23,7 @@ services:
       - n8n_data:/home/node/.n8n
     environment:
       - N8N_BASIC_AUTH_ACTIVE=false
+      - WEBHOOK_URL=https://closefisted-discontinuously-leisa.ngrok-free.dev
     depends_on:
       - python-api
     networks:
