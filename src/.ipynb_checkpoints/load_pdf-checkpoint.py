@@ -8,8 +8,6 @@ import pytesseract
 import cv2
 import numpy as np
 import logging
-import re
-from difflib import SequenceMatcher
 
 # Get the standard logger
 logger = logging.getLogger("app")
@@ -39,17 +37,8 @@ def page_to_text_with_images(page: dict) -> str:
     Combine text blocks, OCR from images, and table text into a single string.
     """
     text = " ".join([tb["text"] for tb in page["text_blocks"]])
-
-    print(f"\n\nTEXT\n {text}")
-
     ocr_texts = " ".join([img["ocr_text"] for img in page["images"]])
-    
-    print(f"\n\nOCR_TEXT\n {ocr_texts}")
-    
     tables_text = " ".join([tbl["text"] for tbl in page.get("tables", [])])
-    
-    print(f"\n\nTABLE_TEXT\n {tables_text}")
-    
     return [text, ocr_texts, tables_text]
 
 # def page_to_text_with_images(page: dict) -> str:
@@ -68,10 +57,10 @@ def _extract_tables_from_page(page) -> List[Dict[str, Any]]:
     tables_data = []
     tables = page.extract_tables(table_settings=table_setting)
 
-    # check_tables = page.find_tables(table_settings=table_setting)
-    # for tab in check_tables:
-    #     print(f"checking table cells\n {tab.cells}\n")
-    #     print(f"checking table rows\n {tab.rows}\n\n\n\n\n\n")
+    check_tables = page.find_tables(table_settings=table_setting)
+    for tab in check_tables:
+        print(f"checking table cells\n {tab.cells}\n")
+        print(f"checking table rows\n {tab.rows}\n\n\n\n\n\n")
 
     for table in tables:
         if not table or len(table) < 2: continue
@@ -159,40 +148,3 @@ def load_pdf(file_path: str) -> List[str]:
 
     # Return combined text (text + table + images OCR)
     return [page_to_text_with_images(page) for page in pages]
-
-def normalize(text: str) -> str:
-    """
-    Normalize text for deduplication.
-    - lowercase
-    - remove extra whitespace
-    - remove repeated punctuation spacing
-    """
-    text = text.lower()
-    text = re.sub(r"\s+", " ", text)   # collapse whitespace
-    text = text.strip()
-    return text
-
-def similarity(a: str, b: str) -> float:
-    return SequenceMatcher(None, a, b).ratio()
-
-
-def clean_inputs(text, ocr_texts, tables_text, threshold=0.9):
-    # Combine all chunks
-    combined = text + ocr_texts + tables_text
-
-    seen = []
-    unique = []
-
-    for chunk in combined:
-        norm = normalize(chunk)
-
-        if not any(similarity(norm, normalize(s)) > threshold for s in seen):
-            seen.append(chunk)
-            unique.append(chunk)
-
-    # Rebuild original structure
-    cleaned_text = [c for c in unique if c in text]
-    cleaned_ocr = [c for c in unique if c in ocr_texts]
-    cleaned_tables = [c for c in unique if c in tables_text]
-
-    return [cleaned_text, cleaned_ocr, cleaned_tables]
