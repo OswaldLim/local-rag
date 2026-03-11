@@ -39,17 +39,10 @@ def page_to_text_with_images(page: dict) -> str:
     Combine text blocks, OCR from images, and table text into a single string.
     """
     text = " ".join([tb["text"] for tb in page["text_blocks"]])
-
-    print(f"\n\nTEXT\n {text}")
-
-    ocr_texts = " ".join([img["ocr_text"] for img in page["images"]])
-    
-    print(f"\n\nOCR_TEXT\n {ocr_texts}")
-    
+    ocr_texts = " ".join([img["ocr_text"] for img in page["images"]])    
     tables_text = " ".join([tbl["text"] for tbl in page.get("tables", [])])
     
-    print(f"\n\nTABLE_TEXT\n {tables_text}")
-    
+
     return [text, ocr_texts, tables_text]
 
 # def page_to_text_with_images(page: dict) -> str:
@@ -123,7 +116,7 @@ def load_pdf(file_path: str) -> List[str]:
 
             # ---------- TEXT (layout-aware) ----------
             page = text_pdf.pages[page_num]
-            words = page.extract_words(use_text_flow=True)
+            words = page.extract_words(use_text_flow=True, x_tolerance=2, extra_attrs=["fontname"])
 
             for w in words:
                 page_data["text_blocks"].append({
@@ -135,19 +128,20 @@ def load_pdf(file_path: str) -> List[str]:
             page_data["tables"] = _extract_tables_from_page(page)
 
             # ---------- IMAGES ----------
-            img_page = image_pdf[page_num]
-            for img in img_page.get_images(full=True):
-                xref = img[0]
-                base_image = image_pdf.extract_image(xref)
+            if len(page_data["text_blocks"] <= 0):
+                img_page = image_pdf[page_num]
+                for img in img_page.get_images(full=True):
+                    xref = img[0]
+                    base_image = image_pdf.extract_image(xref)
 
-                image_bytes = base_image["image"]
-                image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+                    image_bytes = base_image["image"]
+                    image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
 
-                page_data["images"].append({
-                    "image": image,
-                    "bbox": img_page.get_image_bbox(img),
-                    "ocr_text": ""#_ocr_image(image)
-                })
+                    page_data["images"].append({
+                        "image": image,
+                        "bbox": img_page.get_image_bbox(img),
+                        "ocr_text": _ocr_image(image)
+                    })
             # print(f"page data: {page_data}", flush=True)
             pages.append(page_data)
             logger.info(f"Page table data {page_data["tables"]}\n\n")
@@ -175,24 +169,3 @@ def normalize(text: str) -> str:
 def similarity(a: str, b: str) -> float:
     return SequenceMatcher(None, a, b).ratio()
 
-
-def clean_inputs(text, ocr_texts, tables_text, threshold=0.9):
-    # Combine all chunks
-    combined = text + ocr_texts + tables_text
-
-    seen = []
-    unique = []
-
-    for chunk in combined:
-        norm = normalize(chunk)
-
-        if not any(similarity(norm, normalize(s)) > threshold for s in seen):
-            seen.append(chunk)
-            unique.append(chunk)
-
-    # Rebuild original structure
-    cleaned_text = [c for c in unique if c in text]
-    cleaned_ocr = [c for c in unique if c in ocr_texts]
-    cleaned_tables = [c for c in unique if c in tables_text]
-
-    return [cleaned_text, cleaned_ocr, cleaned_tables]
