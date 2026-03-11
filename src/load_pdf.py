@@ -128,7 +128,7 @@ def load_pdf(file_path: str) -> List[str]:
             page_data["tables"] = _extract_tables_from_page(page)
 
             # ---------- IMAGES ----------
-            if len(page_data["text_blocks"] <= 0):
+            if len(page_data["text_blocks"]) <= 0:
                 img_page = image_pdf[page_num]
                 for img in img_page.get_images(full=True):
                     xref = img[0]
