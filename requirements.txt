@@ -31,5 +31,3 @@ python-docx
 python-pptx
 pandas
 openpyxl
-re
-difflib
