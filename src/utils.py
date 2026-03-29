@@ -125,26 +125,27 @@ def load_txt(file_path: str) -> List[str]:
     return pages
 
 
-def chunk_text(text: str, chunk_size: int = 800, overlap: int = 100, chunk_type: str = "text") -> List[str]:
+def chunk_text(text: str, chunk_size: int = 500, overlap: int = 100, chunk_type: str = "text") -> List[str]:
     chunks = []
     start = 0
     while start < len(text):
         end = start + chunk_size
-        chunks.append({"text": text[start:end], "chunk_type": chunk_type})
+        # chunks.append({"text": text[start:end], "chunk_type": chunk_type})
+        chunks.append(text[start:end])
         start = end - overlap
-    chunks = remove_small_chunks(chunks)
-    chunks = remove_repetitions(chunks)
+    # chunks = remove_small_chunks(chunks)
+    # chunks = remove_repetitions(chunks)
     return chunks
 
 def remove_small_chunks(chunks, min_length=80):
-    return [c for c in chunks if len(c.strip()) > min_length]
+    return [c for c in chunks if len(c["text"].strip()) > min_length]
 
 def remove_repetitions(chunks):
     seen = set()
     unique = []
 
     for c in chunks:
-        norm = c.lower().strip()
+        norm = c["text"].lower().strip()
 
         if norm not in seen:
             seen.add(norm)

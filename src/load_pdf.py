@@ -20,11 +20,13 @@ pytesseract.pytesseract.tesseract_cmd = "/usr/bin/tesseract"
 
 table_setting = {
     "vertical_strategy": "lines", 
-    "horizontal_strategy": "lines",
-    "edge_min_length": 4,
-    "intersection_tolerance": 3.8,
-    "snap_tolerance": 10,
-    "join_tolerance": 10,
+    "horizontal_strategy": "text",
+    "intersection_tolerance": 2,
+    "edge_min_length": 10,
+    "edge_min_length_prefilter": 100,
+    "snap_tolerance": 6.9,
+    "join_tolerance": 28,
+    "min_words_horizontal": 5,
 }
 
 def _ocr_image(img: Image.Image) -> str:
@@ -61,36 +63,86 @@ def _extract_tables_from_page(page) -> List[Dict[str, Any]]:
     tables_data = []
     tables = page.extract_tables(table_settings=table_setting)
 
-    # check_tables = page.find_tables(table_settings=table_setting)
-    # for tab in check_tables:
-    #     print(f"checking table cells\n {tab.cells}\n")
-    #     print(f"checking table rows\n {tab.rows}\n\n\n\n\n\n")
+    # for table in tables:
+    #     if not table or len(table) < 2: continue
+        
+    #     # 1. Identify headers
+    #     top_headers = [cell.strip() if cell else "" for cell in table[0]]
+    #     print(f"top_headers: {top_headers}")
+    #     semantic_rows = []
+        
+    #     # 2. Iterate through data rows (starting from index 1)
+    #     for row in table[1:]:
+    #         # The first element of the row is our "Side Header" (e.g., 'Workers')
+    #         side_header = f"Row: {row[0].strip()}" if row[0] else "Row"
+            
+    #         row_content = []
+    #         # 3. Pair each cell with its Top Header
+    #         for i, cell in enumerate(row[1:], start=1):
+    #             header = f"Col_{i}: {top_headers[i]}" if i < len(top_headers) else ""
+    #             value = cell.strip() if cell else "N/A" 
+    #             if value == "N/A" or value == '':
+    #                 continue
+                
+    #             # Format: [SideHeader, TopHeader]: Value
+    #             row_content.append(f"[{side_header}, {header}]: {value}")
+            
+    #         semantic_rows.append(" | ".join(row_content))
+    #         print(f"\nsemantic rows: {semantic_rows}\n")
+            
+    #     tables_data.append({"text": " || ".join(semantic_rows)})
 
     for table in tables:
         if not table or len(table) < 2: continue
         
-        # 1. Identify headers
-        top_headers = [cell.strip() if cell else "" for cell in table[0]]
-        semantic_rows = []
+        # 1. Extract headers and handle potential empty header cells
+        top_headers = [cell.strip() if (cell and cell.strip()) else f"Field_{i}" 
+                    for i, cell in enumerate(table[0])]
         
-        # 2. Iterate through data rows (starting from index 1)
+        # This will hold individual chunks for this table
+        table_chunks = []
+        
+        # 2. Iterate through data rows
         for row in table[1:]:
-            # The first element of the row is our "Side Header" (e.g., 'Workers')
-            side_header = row[0].strip() if row[0] else "Row"
+            if not row: continue
             
-            row_content = []
-            # 3. Pair each cell with its Top Header
+            # Identify the "Subject" of this row (usually the first column)
+            # e.g., "Workers", "HIV", "Valve Model A"
+            subject = row[0].strip() if row[0] else "Entry"
+            
+            row_statements = []
+            
+            # 3. Create a natural language statement for every cell
             for i, cell in enumerate(row[1:], start=1):
-                header = top_headers[i] if i < len(top_headers) else f"Col_{i}"
-                value = cell.strip() if cell else "N/A"
+                if i >= len(top_headers): break
                 
-                # Format: [SideHeader, TopHeader]: Value
-                row_content.append(f"[{side_header}, {header}]: {value}")
+                value = cell.strip() if cell else ""
+                
+                # Skip empty data points to keep the vector 'clean'
+                if not value or value.upper() == "N/A":
+                    continue
+                
+                header = top_headers[i]
+                
+                # FORMAT: "In [Subject], the [Header] is [Value]"
+                # This is the 'Golden Format' for RAG vectorization
+                statement = f"For {subject}, the {header} is {value}"
+                row_statements.append(statement)
             
-            semantic_rows.append(" | ".join(row_content))
-            
-        tables_data.append({"text": " || ".join(semantic_rows)})
-    logger.info(f"Extracted table data:  {tables_data}")
+            # Join statements with periods to form a descriptive paragraph for the row
+            if row_statements:
+                row_context = f"Table Data Summary: {'. '.join(row_statements)}."
+                table_chunks.append(row_context)
+        
+        # 4. Store the chunks. 
+        # TIP: For RAG, it is better to store each row as its own entry in tables_data
+        # rather than joining the whole table into one giant string.
+        for chunk in table_chunks:
+            tables_data.append({"text": chunk})
+
+    print(tables_data)
+
+    # logger.info(f"Extracted table data:  {tables_data}")
     return tables_data
 
 def load_pdf(file_path: str) -> List[str]:
@@ -116,7 +168,7 @@ def load_pdf(file_path: str) -> List[str]:
 
             # ---------- TEXT (layout-aware) ----------
             page = text_pdf.pages[page_num]
-            words = page.extract_words(use_text_flow=True, x_tolerance=2, extra_attrs=["fontname"])
+            words = page.extract_words(use_text_flow=True, x_tolerance=3, extra_attrs=["fontname", "size"])
 
             for w in words:
                 page_data["text_blocks"].append({
@@ -142,12 +194,9 @@ def load_pdf(file_path: str) -> List[str]:
                         "bbox": img_page.get_image_bbox(img),
                         "ocr_text": _ocr_image(image)
                     })
-            # print(f"page data: {page_data}", flush=True)
             pages.append(page_data)
-            logger.info(f"Page table data {page_data["tables"]}\n\n")
 
     finally:
-        print(len(pages))
         text_pdf.close()
         image_pdf.close()
 

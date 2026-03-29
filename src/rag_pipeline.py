@@ -1,4 +1,4 @@
-from qdrant_client import QdrantClient
+from qdrant_client import QdrantClient, models
 from qdrant_client.models import PointStruct
 from langchain_ollama import OllamaEmbeddings
 from langchain_ollama import OllamaLLM
@@ -36,6 +36,8 @@ vector_store = QdrantVectorStore(
 def ingest_document(doc_name: str, text_chunks: list, type: str = "text"):
     points = []
     print(f"INGESTING DOCUMENTSSSS\n  {text_chunks}", flush=True)
+    if len(text_chunks) == 0:
+        return 0
     for i, chunk in enumerate(text_chunks):
         vector = embedding_model.embed_query(chunk)
         points.append(PointStruct(
@@ -49,18 +51,39 @@ def ingest_document(doc_name: str, text_chunks: list, type: str = "text"):
 def query_rag(query: str, top_k: int = 6) -> str:
     # Embed query
     query_vector = embedding_model.embed_query(query)
-    result = qdrant.query_points(collection_name=COLLECTION_NAME, query=query_vector, limit=top_k)
-    # result = vector_store.similarity_search_by_vector(
-    #     embedding=query_vector,
-    #     k=top_k
-    # )
+    if "table" in query:
+        query_filter = models.Filter(
+            must=[
+                models.FieldCondition(
+                    key="chunk_type",
+                    match=models.MatchValue(value="tables")
+                ),
+                models.FieldCondition(
+                    key="text",
+                    match=models.MatchTextAny(text_any=query),
+                )
+            ]
+        )
+        result = qdrant.query_points(
+            collection_name=COLLECTION_NAME, 
+            query=query_vector,
+            with_payload=True,
+            query_filter=query_filter,
+            limit=top_k)
+    else:
+        result = qdrant.query_points(
+            collection_name=COLLECTION_NAME, 
+            query=query_vector,
+            limit=top_k)
     print("FINISH QUERYing points!!!!!")
 
     list_of_scored_points = [tups for scored_points in result for tups in scored_points][1]
     context = "\n\n".join([f"text: {text.payload["text"]}, file: {text.payload["doc_name"]}" for text in list_of_scored_points])
 
 
-    prompt = f"Answer the following question based on the context below:\n\nContext:\n{context}\n\nQuestion: {query}\nshow the doc_name at the end of the answer as reference - there can be multiple doc_names - only if you know else say you don't know if no context is provided\nAnswer:"
+    print(f"ContextSTTTTT\n\n{context}\n\n")
+
+    prompt = f"Answer the following question based on the context below:\n\nContext:\n{context}\n\nQuestion: {query}\nshow the doc_name at the end of the answer as reference - there can be multiple doc_names - only if you know else say you don't know if no context is provided\nif the answer is from a table, just show the values within the cell\nAnswer:"
 
     response = llm.invoke(prompt)
 
