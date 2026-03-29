@@ -18,11 +18,14 @@ async def ingest(file: UploadFile = File(...)):
         # all_chunks # (Do 3 different chunktypes)
         for page in pages:
             print("DOING TASK 1!!!!!!!")
-            count = ingest_document(file.filename, page[0])
+            all_chunks = chunk_text(page[0])
+            count = ingest_document(file.filename, all_chunks)
             print("DOING TASK 2!!!!!!!")
-            count += ingest_document(file.filename, page[1], "image")
+            all_chunks = chunk_text(page[1])
+            count += ingest_document(file.filename, all_chunks, "image")
             print("DOING TASK 3!!!!!!!")
-            count += ingest_document(file.filename, page[2], "table")
+            all_chunks = chunk_text(page[2])
+            count += ingest_document(file.filename, all_chunks, "table")
     else:
         for page in pages:
             all_chunks.extend(chunk_text(page))
