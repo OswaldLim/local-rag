@@ -168,7 +168,7 @@ def load_pdf(file_path: str) -> List[str]:
 
             # ---------- TEXT (layout-aware) ----------
             page = text_pdf.pages[page_num]
-            words = page.extract_words(use_text_flow=True, x_tolerance=3, extra_attrs=["fontname", "size"])
+            words = page.extract_words(use_text_flow=True, x_tolerance=3, extra_attrs=["fontname"])
 
             for w in words:
                 page_data["text_blocks"].append({
