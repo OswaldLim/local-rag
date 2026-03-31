@@ -10,6 +10,7 @@ langchain-qdrant
 
 # Vector database
 qdrant-client
+fastembed
 
 # LLM (local)
 ollama

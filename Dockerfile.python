@@ -14,6 +14,8 @@ WORKDIR /code
 COPY ./requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
+RUN python -c 'from fastembed import TextEmbedding, SparseTextEmbedding, LateInteractionTextEmbedding; bm25_embedding_model = SparseTextEmbedding("Qdrant/bm25"); late_interaction_embedding_model = LateInteractionTextEmbedding("colbert-ir/colbertv2.0"); dense_embedding_model = TextEmbedding("sentence-transformers/all-MiniLM-L6-v2")'
+
 COPY ./src ./src
 
 CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
