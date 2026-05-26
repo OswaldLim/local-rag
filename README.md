@@ -1,7 +1,7 @@
 # Local RAG Pipeline with FastAPI, Docker, and n8n
 
 This project is a local Retrieval-Augmented Generation (RAG) pipeline using FastAPI for the API, Docker for containerization, and n8n for automation. It supports multiple document types including PDF, Word, Excel, CSV, TXT, and PPTX.
-
+(Currently is still a work in progress. Currently focusing on pdf ingestion and testing out various vector database quering techniques)
 ---
 
 Features:
