@@ -1,11 +1,10 @@
 from qdrant_client import QdrantClient, models
-from qdrant_client.models import PointStruct, BN25Config
+from qdrant_client.models import PointStruct
 from langchain_ollama import OllamaEmbeddings
 from langchain_ollama import OllamaLLM
 from langchain_qdrant import QdrantVectorStore
 from fastembed import SparseTextEmbedding, LateInteractionTextEmbedding
 import uuid
-from datetime import datetime
 
 embedding_model = OllamaEmbeddings(
     model="nomic-embed-text",
@@ -38,7 +37,7 @@ vector_store = QdrantVectorStore(
     embedding=embedding_model
 )
 
-def ingest_document(doc_name: str, text_chunks: list, type: str = "text"):
+def ingest_document(text_chunks: list):
     points = []
     sparse_points = []
     print(f"INGESTING DOCUMENTSSSS\n  {text_chunks}", flush=True)
@@ -49,7 +48,7 @@ def ingest_document(doc_name: str, text_chunks: list, type: str = "text"):
         points.append(PointStruct(
             id=str(uuid.uuid4()),
             vector=vector,
-            payload={"text":chunk, "doc_name":doc_name, "timestamps":datetime.now(), "type":type}
+            payload=chunk.metadata
         ))
         sparse_points.append
     qdrant.upsert(collection_name=COLLECTION_NAME, points=points)
