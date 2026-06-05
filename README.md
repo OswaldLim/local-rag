@@ -34,8 +34,8 @@ Setup Instructions:
 
 1. Clone the repository
 
-   git clone https://github.com/username/rag-project.git
-   cd rag-project
+   git clone https://github.com/OswaldLim/local-rag
+   cd local-rag
 
 2. Docker setup
 
@@ -62,7 +62,7 @@ Usage:
 1. Open n8n at (http://localhost:5678)
 
 2. Ingest Documents
-Supported file types:
+Supported file types: (Currently focusing on PDFs)
 
 - PDF
 - DOCX / DOC
@@ -104,3 +104,7 @@ TXT       | built-in open()
 CSV       | pandas
 XLSX      | pandas + openpyxl
 PPTX      | python-pptx
+
+
+
+need to explicitly download Teserract from website to yse
