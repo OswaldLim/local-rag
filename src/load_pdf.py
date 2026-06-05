@@ -1,78 +1,123 @@
-import os
-import tempfile
-from pathlib import Path
+from langchain_community.document_loaders import UnstructuredPDFLoader
+from langchain_classic.schema import Document
 import pandas as pd
 from io import StringIO
-from langchain_core.documents import Document
-from langchain_community.document_loaders import (
-    TextLoader,
-    UnstructuredPDFLoader
-)
-import pytesseract
 
-# # Get the standard logger
-# logger = logging.getLogger("app")
-# logging.basicConfig(level=logging.INFO)
 
-pytesseract.pytesseract.tesseract_cmd = "/usr/bin/tesseract"
+def combine_documents(documents):
+    combined = []
+    buffer = []
+    current_metadata = None
 
+    def flush():
+        nonlocal buffer, current_metadata
+        if not buffer:
+            return
+
+        text = "\n".join(buffer).strip()
+        if text:
+            combined.append(
+                Document(
+                    page_content=text,
+                    metadata=current_metadata or {}
+                )
+            )
+
+        buffer = []
+        current_metadata = None
+
+    for doc in documents:
+        category = doc.metadata.get("category", "")
+        text = doc.page_content.strip()
+
+        # TABLES: keep standalone
+        if doc.metadata.get("source") == "table" or category == "Table":
+            flush()
+            combined.append(doc)
+            continue
+
+        # HEADER/TITLE: start new block
+        if category in ["Title", "Header"]:
+            flush()
+            buffer.append(text)
+            current_metadata = doc.metadata
+            continue
+
+        # NORMAL TEXT
+        if not buffer:
+            current_metadata = doc.metadata
+
+        buffer.append(text)
+
+    flush()
+    return combined
 
 def load_pdf(pdf_path):
-    loader = UnstructuredPDFLoader(pdf_path,"elements",strategy="hi_res", infer_table_structure=True)
+    loader = UnstructuredPDFLoader(
+        pdf_path,
+        mode="elements",
+        strategy="hi_res",
+        infer_table_structure=True
+    )
+
     documents = loader.load()
+    new_docs = []
 
     print(f"Loaded {len(documents)} documents(s) from PDF")
-    # print(f"{documents[12].page_content}\n")
-    # print(documents[12])
-    format_table(documents[12])
-    for i, doc in enumerate(documents.copy()):
-            if doc.metadata["category"] == "Table":
-                documents.extend(format_table(doc))
-            # else:
-            #     print(f"\nDocument {i+1} Content Preview: {doc.page_content[:100]}")
-            # print(f"\nMetadata: {doc.metadata}")
-    return documents
 
+    for doc in documents:
+        category = doc.metadata.get("category")
 
-def format_table(element):
-    # print(element.metadata)
-    html_table = element.metadata["text_as_html"]
-        
-    # 3. Convert HTML string to a list of DataFrames
-    # read_html returns a list, so we take the first element [0]
+        if category == "Table":
+            new_docs.append(format_table_as_single_doc(doc))
+        else:
+            new_docs.append(doc)
+
+    new_docs = combine_documents(new_docs)
+    print(len(new_docs))
+    return new_docs
+
+def format_table_as_single_doc(element):
+    html_table = element.metadata.get("text_as_html")
+
+    if not html_table:
+        # fallback
+        return Document(
+            page_content=element.page_content,
+            metadata={**element.metadata, "source": "table", "text": element.page_content}
+        )
+
     dfs = pd.read_html(StringIO(html_table))
     df = dfs[0]
-    
-    docs = []
 
-    for idx, row in df.iterrows():
-        content = "\n".join(
-            f"{col}: {row[col]}"
-            for col in df.columns
-        )
+    # Convert entire table into structured text
+    table_text = []
 
-        docs.append(
-            Document(
-                page_content=content,
-                metadata={
-                    "source": "table",
-                    "row_index": idx,
-                    **element.metadata
-                }
-            )
-        )
+    table_text.append("TABLE CONTENT:")
 
-    return docs
+    # Add header row
+    headers = " | ".join(str(col) for col in df.columns)
+    table_text.append(headers)
+    table_text.append("-" * len(headers))
+
+    # Add rows
+    for _, row in df.iterrows():
+        row_text = " | ".join(str(row[col]) for col in df.columns)
+        table_text.append(row_text)
+
+    content = "\n".join(table_text)
+
+    return Document(
+        page_content=content,
+        metadata={
+            **element.metadata,
+            "source": "table",
+            "rows": len(df),
+            "columns": list(df.columns),
+            "table_id": element.metadata.get("element_id"),
+        }
+    )
 
 if __name__ == "__main__":
-    print("Start")
+    print("start")
     load_pdf("test_files\\2. Medium Pressure Accel Valves-installation.pdf")
-
-
-
-# create a def to format the pandas table into understandable text sentences 
-
-
-
-
-

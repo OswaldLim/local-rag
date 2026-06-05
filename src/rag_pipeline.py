@@ -1,7 +1,6 @@
 from qdrant_client import QdrantClient, models
 from qdrant_client.models import PointStruct
-from langchain_ollama import OllamaEmbeddings
-from langchain_ollama import OllamaLLM
+from langchain_ollama import OllamaEmbeddings, OllamaLLM
 from langchain_qdrant import QdrantVectorStore
 from fastembed import SparseTextEmbedding, LateInteractionTextEmbedding
 import uuid
@@ -23,12 +22,13 @@ llm = OllamaLLM(
 qdrant = QdrantClient(host="qdrant", port=6333)
 COLLECTION_NAME = "rag_docs"
 
-qdrant.delete_collection(collection_name=COLLECTION_NAME)
+# qdrant.delete_collection(collection_name=COLLECTION_NAME)
 
 if not qdrant.collection_exists(COLLECTION_NAME):
     qdrant.create_collection(
         collection_name=COLLECTION_NAME,
         vectors_config={"size": 768, "distance": "Cosine"},
+        timeout=30
     )
 
 vector_store = QdrantVectorStore(
@@ -44,11 +44,14 @@ def ingest_document(text_chunks: list):
     if len(text_chunks) == 0:
         return 0
     for i, chunk in enumerate(text_chunks):
-        vector = embedding_model.embed_query(chunk)
+        vector = embedding_model.embed_query(chunk.page_content)
         points.append(PointStruct(
             id=str(uuid.uuid4()),
             vector=vector,
-            payload=chunk.metadata
+            payload={
+                "text": chunk.page_content,
+                **chunk.metadata
+            }
         ))
         sparse_points.append
     qdrant.upsert(collection_name=COLLECTION_NAME, points=points)
@@ -88,7 +91,7 @@ def query_rag(query: str, top_k: int = 7) -> str:
 
     print(f"\n\n{list_of_scored_points}\n\n")
 
-    context = "\n\n".join([f"text: {text.payload["text"]}, file: {text.payload["doc_name"]}" for text in list_of_scored_points])
+    context = "\n\n".join([f"text: {text.payload["text"]}, file: {text.payload["filename"]}" for text in list_of_scored_points])
 
 
     print(f"ContextSTTTTT\n\n{context}\n\n")

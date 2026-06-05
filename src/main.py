@@ -15,9 +15,7 @@ async def ingest(file: UploadFile = File(...)):
     pages = load_document(temp_file)     
     all_chunks = []
     if file.filename.endswith(".pdf"):
-        for page in pages:
-            print("DOING TASK 1!!!!!!!")
-            count = ingest_document(pages)
+        count = ingest_document(pages)
     else:
         for page in pages:
             all_chunks.extend(chunk_text(page))
