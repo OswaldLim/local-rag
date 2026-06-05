@@ -4,6 +4,7 @@ __pycache__/
 *.pyo
 *.pyd
 *.ipynb*
+tempCodeRunnerFile.py
 
 #Test files
 test_files/
