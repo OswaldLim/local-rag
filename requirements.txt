@@ -3,21 +3,22 @@ fastapi
 uvicorn
 
 # RAG framework
-langchain
+langchain_core
 langchain-community
 langchain_ollama
 langchain-qdrant
 
 # Vector database
 qdrant-client
+fastembed
 
 # LLM (local)
 ollama
 
 # Document loading
-unstructured
-pdfplumber>=0.11.0
-pymupdf>=1.23.0
+unstructured[all-docs]
+pytesseract>=0.3.10
+pi_heif
 pillow>=10.0.0
 pytesseract>=0.3.10
 opencv-python-headless>=4.9.0
