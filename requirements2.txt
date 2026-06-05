@@ -1,0 +1,6 @@
+langchain-community
+
+# document loading
+unstructured[all-docs]
+pytesseract>=0.3.10
+pi_heif
