@@ -22,7 +22,7 @@ llm = OllamaLLM(
 qdrant = QdrantClient(host="qdrant", port=6333)
 COLLECTION_NAME = "rag_docs"
 
-# qdrant.delete_collection(collection_name=COLLECTION_NAME)
+qdrant.delete_collection(collection_name=COLLECTION_NAME)
 
 if not qdrant.collection_exists(COLLECTION_NAME):
     qdrant.create_collection(
@@ -64,12 +64,8 @@ def query_rag(query: str, top_k: int = 7) -> str:
         query_filter = models.Filter(
             must=[
                 models.FieldCondition(
-                    key="chunk_type",
-                    match=models.MatchValue(value="tables")
-                ),
-                models.FieldCondition(
-                    key="text",
-                    match=models.MatchTextAny(text_any=query),
+                    key="category",
+                    match=models.MatchValue(value="Table")
                 )
             ]
         )
