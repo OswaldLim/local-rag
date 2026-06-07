@@ -60,7 +60,7 @@ def combine_documents(documents):
 
 def load_pdf(pdf_path):
     chunks = partition_pdf(
-        file_path=pdf_path,
+        filename=pdf_path,
         mode="elements",
         strategy="hi_res",
         infer_table_structure=True,
@@ -75,8 +75,20 @@ def load_pdf(pdf_path):
     new_docs = []
 
     print(f"Loaded {len(chunks)} documents(s) from PDF")
-    for c in chunks:
-        print(type(c), c.text[:1000],"\n\n",c.metadata.orig_elements,"\n")
+
+    tables = []
+    texts = []
+
+    for chunk in chunks:
+        if "CompositeElement" in str(type(chunk)):  # Check if it's a CompositeElement
+            for element in chunk.metadata.orig_elements:  # Iterate through its elements
+                if "Table" in str(type(element)):  # Now check for Table type
+                    tables.append(element)  # Append the table element
+            texts.append(chunk)  # Still append the CompositeElement to texts
+
+    images = get_images_base64(chunks)
+    print(images[2])
+    # display_base64_image(images[2])
 
     # for doc in documents:
     #     category = doc.metadata.get("category")
@@ -89,6 +101,34 @@ def load_pdf(pdf_path):
     # new_docs = combine_documents(new_docs)
     # print(len(new_docs))
     return new_docs
+
+def display_base64_image(b64_string):
+    import base64
+    import io
+    from PIL import Image
+
+    if ',' in b64_string:
+        b64_string = b64_string.split(',', 1)[1]
+        
+    # Decode and open the image
+    image_data = base64.b64decode(b64_string)
+    image = Image.open(io.BytesIO(image_data))
+    
+    # Display the image
+    image.show()
+
+
+def get_images_base64(chunks):
+    images_b64 = []
+    for chunk in chunks:
+        if "CompositeElement" in str(type(chunk)):
+            chunk_els = chunk.metadata.orig_elements
+            for el in chunk_els:
+                if "Image" in str(type(el)):
+                    images_b64.append(el.metadata.image_base64)
+    return images_b64
+
+
 
 def create_summary():
     prompt_text = """
