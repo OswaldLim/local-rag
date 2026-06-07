@@ -59,7 +59,7 @@ def combine_documents(documents):
     return combined
 
 def load_pdf(pdf_path):
-    loader = UnstructuredPDFLoader(
+    chunks = partition_pdf(
         file_path=pdf_path,
         mode="elements",
         strategy="hi_res",
@@ -72,12 +72,11 @@ def load_pdf(pdf_path):
         new_after_n_chars=6000,
     )
 
-    documents = loader.load()
     new_docs = []
 
-    print(f"Loaded {len(documents)} documents(s) from PDF")
-    for c in documents:
-        print(type(c), c.page_content[:1000],"\n\n",c.metadata.get("category"),"\n")
+    print(f"Loaded {len(chunks)} documents(s) from PDF")
+    for c in chunks:
+        print(type(c), c.text[:1000],"\n\n",c.metadata.orig_elements,"\n")
 
     # for doc in documents:
     #     category = doc.metadata.get("category")
