@@ -1,9 +1,11 @@
 # from langchain_community.document_loaders import UnstructuredPDFLoader
 from unstructured.partition.pdf import partition_pdf
 from langchain_classic.schema import Document
-from langchain_ollama import OllamaEmbeddings, OllamaLLM
-import pandas as pd
-from io import StringIO
+from langchain_ollama import OllamaLLM, ChatOllama
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+import uuid
+import base64
 
 llm = OllamaLLM(
     model="llama3.2",
@@ -72,8 +74,6 @@ def load_pdf(pdf_path):
         new_after_n_chars=6000,
     )
 
-    new_docs = []
-
     print(f"Loaded {len(chunks)} documents(s) from PDF")
 
     tables = []
@@ -87,23 +87,13 @@ def load_pdf(pdf_path):
             texts.append(chunk)  # Still append the CompositeElement to texts
 
     images = get_images_base64(chunks)
-    print(images[2])
-    # display_base64_image(images[2])
 
-    # for doc in documents:
-    #     category = doc.metadata.get("category")
+    text_summary, table_summary, tables_html = create_summary(texts=texts, tables=tables)
+    image_summary = summarize_image(images=images)
 
-    #     if category == "Table":
-    #         new_docs.append(format_table_as_single_doc(doc))
-    #     else:
-    #         new_docs.append(doc)
-
-    # new_docs = combine_documents(new_docs)
-    # print(len(new_docs))
-    return new_docs
+    return format_to_document(texts, text_summary, tables_html=tables_html, table_summaries=table_summary, image_summaries= image_summary, images=images)
 
 def display_base64_image(b64_string):
-    import base64
     import io
     from PIL import Image
 
@@ -117,6 +107,45 @@ def display_base64_image(b64_string):
     # Display the image
     image.show()
 
+def format_to_document(texts, text_summaries, tables_html, table_summaries, images, image_summaries):
+    # 1) Make flat Documents for each modality (page_content = summary; metadata keeps originals)
+    docs = []
+
+    # text
+    for original, summary in zip(texts, text_summaries):
+        docs.append(Document(
+            page_content=summary,
+            metadata={
+                "id": str(uuid.uuid4()),
+                "modality": "text",
+                "original": original.page_content if hasattr(original, "page_content") else str(original)
+            }
+        ))
+
+    # tables
+    for original_html, summary in zip(tables_html, table_summaries):
+        docs.append(Document(
+            page_content=summary,
+            metadata={
+                "id": str(uuid.uuid4()),
+                "modality": "table",
+                "original": original_html
+            }
+        ))
+
+    # images (store the base64 so we can attach it later if needed)
+    for b64, summary in zip(images, image_summaries):
+        docs.append(Document(
+            page_content=summary,   # image summary text
+            metadata={
+                "id": str(uuid.uuid4()),
+                "modality": "image",
+                "image_b64": b64
+            }
+        ))
+
+    return docs
+
 
 def get_images_base64(chunks):
     images_b64 = []
@@ -128,9 +157,33 @@ def get_images_base64(chunks):
                     images_b64.append(el.metadata.image_base64)
     return images_b64
 
+def summarize_image(images):
+    model = ChatOllama(model="llama3.2-vision", temperature=0)
 
+    prompt_template = """Describe the image in detail. For context, 
+                    the image is part of a research paper explaining the transformers 
+                    architecture. Be specific about graphs, such as bar plots."""
 
-def create_summary():
+    # 2. Setup the prompt
+    # Note: Llama 3.2 Vision expects the image format within the message structure
+    prompt = ChatPromptTemplate.from_messages([
+        ("user", [
+            {"type": "text", "text": prompt_template},
+            {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,{image}"}}
+        ])
+    ])
+
+    # 3. Create the chain
+    chain = prompt | model | StrOutputParser()
+
+    # 4. Run the batch
+    # Pass a list of dictionaries with the key 'image' containing your base64 strings
+    image_summaries = chain.batch([{"image": img} for img in images])
+
+    return image_summaries
+
+def create_summary(tables, texts):
+    # Prompt
     prompt_text = """
     You are an assistant tasked with summarizing tables and text.
     Give a concise summary of the table or text.
@@ -142,101 +195,23 @@ def create_summary():
     Table or text chunk: {element}
 
     """
-    response = llm.invoke(prompt_text)
+    prompt = ChatPromptTemplate.from_template(prompt_text)
 
-def format_table_as_single_doc(element):
-    html_table = element.metadata.get("text_as_html")
+    # Summary chain
+    model = ChatOllama(temperature=0.5, model="llama3.2")
+    summarize_chain = {"element": lambda x: x} | prompt | model | StrOutputParser()
 
-    # ----------------------------
-    # fallback (no HTML table)
-    # ----------------------------
-    if not html_table:
-        return Document(
-            page_content=element.page_content,
-            metadata={**element.metadata, "source": "table"}
-        )
+    text_summaries = summarize_chain.batch(texts, {"max_concurrency": 1})
+    tables_html = [table.metadata.text_as_html for table in tables]
+    table_summaries = summarize_chain.batch(tables_html, {"max_concurrency": 2})
 
-    dfs = pd.read_html(StringIO(html_table))
-    df = dfs[0]
+    return text_summaries, table_summaries, tables_html
 
-    # ----------------------------
-    # 1. FLATTEN COLUMN HEADERS
-    # ----------------------------
-    def clean_col(col):
-        if isinstance(col, tuple):
-            col = " ".join([c for c in col if "Unnamed" not in str(c)])
-        col = str(col).strip()
-        return None if "Unnamed" in col or col == "" else col
 
-    df.columns = [clean_col(c) for c in df.columns]
-    df = df.loc[:, [c for c in df.columns if c is not None]]
 
-    # ----------------------------
-    # 2. SAFE CELL NORMALIZER
-    # ----------------------------
-    def normalize_cell(value):
-        if isinstance(value, pd.Series):
-            value = value.iloc[0] if len(value) > 0 else None
 
-        if isinstance(value, (list, tuple, dict)):
-            value = str(value)
-
-        if pd.isna(value):
-            return None
-
-        value = str(value).strip()
-        return value if value else None
-
-    # ----------------------------
-    # 3. BUILD LLM-FRIENDLY TEXT
-    # ----------------------------
-    table_name = element.metadata.get("table_name", "TABLE")
-
-    lines = []
-    lines.append(f"Table: {table_name}")
-    lines.append("This table contains structured technical specifications.")
-    lines.append("")
-
-    # schema overview
-    lines.append("Fields:")
-    lines.append(", ".join(df.columns.astype(str)))
-    lines.append("")
-
-    # ----------------------------
-    # 4. ROW SERIALIZATION
-    # ----------------------------
-    for i, row in df.iterrows():
-        row_parts = []
-
-        for col in df.columns:
-            value = normalize_cell(row[col])
-
-            if value is None:
-                continue
-
-            row_parts.append(f"{col}: {value}")
-
-        if not row_parts:
-            continue
-
-        lines.append(f"Entry {i + 1}: " + "; ".join(row_parts))
-
-    content = "\n".join(lines)
-
-    # ----------------------------
-    # 5. RETURN DOCUMENT
-    # ----------------------------
-    return Document(
-        page_content=content,
-        metadata={
-            **element.metadata,
-            "source": "table",
-            "rows": len(df),
-            "columns": list(df.columns),
-            "table_id": element.metadata.get("element_id"),
-        }
-    )
 
 if __name__ == "__main__":
     print("start")
-    load_pdf("test_files\\2. Medium Pressure Accel Valves-installation.pdf")
+    doc = load_pdf("test_files\\2. Medium Pressure Accel Valves-installation.pdf")
+    print(f"\n\n\n\n\n{type(doc)}")
