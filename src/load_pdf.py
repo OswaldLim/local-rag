@@ -12,6 +12,7 @@ llm = OllamaLLM(
     base_url="http://ollama:11434"
 )
 
+
 def combine_documents(documents):
     combined = []
     buffer = []
@@ -74,24 +75,35 @@ def load_pdf(pdf_path):
         new_after_n_chars=6000,
     )
 
+
     print(f"Loaded {len(chunks)} documents(s) from PDF")
 
     tables = []
     texts = []
 
     for chunk in chunks:
+        # print(str(type(chunk)))
         if "CompositeElement" in str(type(chunk)):  # Check if it's a CompositeElement
+            # print(f"\n\nInside\n{chunk.metadata.orig_elements}\n")
             for element in chunk.metadata.orig_elements:  # Iterate through its elements
+                # print(f"\n\nHIIIIIIII{element}\n\n")
                 if "Table" in str(type(element)):  # Now check for Table type
+                    # print(f"\n\ntable element: {element}\n\n")
                     tables.append(element)  # Append the table element
             texts.append(chunk)  # Still append the CompositeElement to texts
+        elif "Table" in str(type(chunk)):
+            tables.append(chunk)
+
 
     images = get_images_base64(chunks)
 
     text_summary, table_summary, tables_html = create_summary(texts=texts, tables=tables)
-    image_summary = summarize_image(images=images)
+    # print(table_summary, "\n\n")
+    # print(tables_html, "\n\n")
+    # image_summary = summarize_image(images=images)
+    image_summary = []
 
-    return format_to_document(texts, text_summary, tables_html=tables_html, table_summaries=table_summary, image_summaries= image_summary, images=images)
+    return format_to_document(texts, text_summary, tables_html=tables_html, table_summaries=table_summary, image_summaries= image_summary, images=images, filepath = pdf_path)
 
 def display_base64_image(b64_string):
     import io
@@ -107,7 +119,7 @@ def display_base64_image(b64_string):
     # Display the image
     image.show()
 
-def format_to_document(texts, text_summaries, tables_html, table_summaries, images, image_summaries):
+def format_to_document(texts, text_summaries, tables_html, table_summaries, images, image_summaries, filepath):
     # 1) Make flat Documents for each modality (page_content = summary; metadata keeps originals)
     docs = []
 
@@ -118,18 +130,21 @@ def format_to_document(texts, text_summaries, tables_html, table_summaries, imag
             metadata={
                 "id": str(uuid.uuid4()),
                 "modality": "text",
-                "original": original.page_content if hasattr(original, "page_content") else str(original)
+                "original": original.page_content if hasattr(original, "page_content") else str(original),
+                "filename":filepath
             }
         ))
 
     # tables
     for original_html, summary in zip(tables_html, table_summaries):
+        # print("\n\nAppending Table\n\n")
         docs.append(Document(
             page_content=summary,
             metadata={
                 "id": str(uuid.uuid4()),
                 "modality": "table",
-                "original": original_html
+                "original": original_html,
+                "filename":filepath
             }
         ))
 
@@ -140,9 +155,12 @@ def format_to_document(texts, text_summaries, tables_html, table_summaries, imag
             metadata={
                 "id": str(uuid.uuid4()),
                 "modality": "image",
-                "image_b64": b64
+                "image_b64": b64,
+                "filename":filepath
             }
         ))
+
+    # print(len(docs))
 
     return docs
 
@@ -158,7 +176,7 @@ def get_images_base64(chunks):
     return images_b64
 
 def summarize_image(images):
-    model = ChatOllama(model="llama3.2-vision", temperature=0)
+    model = ChatOllama(model="llama3.2-vision", temperature=0, base_url="http://ollama:11434")
 
     prompt_template = """Describe the image in detail. For context, 
                     the image is part of a research paper explaining the transformers 
@@ -186,7 +204,8 @@ def create_summary(tables, texts):
     # Prompt
     prompt_text = """
     You are an assistant tasked with summarizing tables and text.
-    Give a concise summary of the table or text.
+    Give a concise summary of the table or text. 
+    When summarising tables summarise each row of data into a sentence.
 
     Respond only with the summary, no additionnal comment.
     Do not start your message by saying "Here is a summary" or anything like that.
@@ -198,7 +217,8 @@ def create_summary(tables, texts):
     prompt = ChatPromptTemplate.from_template(prompt_text)
 
     # Summary chain
-    model = ChatOllama(temperature=0.5, model="llama3.2")
+    model = ChatOllama(temperature=0.5, model="llama3.2", base_url="http://ollama:11434")
+    # model = ChatOllama(temperature=0.5, model="llama3.2", base_url="http://localhost:11434")
     summarize_chain = {"element": lambda x: x} | prompt | model | StrOutputParser()
 
     text_summaries = summarize_chain.batch(texts, {"max_concurrency": 1})
@@ -213,5 +233,7 @@ def create_summary(tables, texts):
 
 if __name__ == "__main__":
     print("start")
-    doc = load_pdf("test_files\\2. Medium Pressure Accel Valves-installation.pdf")
+    docs = load_pdf("test_files\\2. Medium Pressure Accel Valves-installation.pdf")
+    for doc in docs:
+        print(f"{doc.page_content}, {doc.metadata}\n\n")
     print(f"\n\n\n\n\n{type(doc)}")

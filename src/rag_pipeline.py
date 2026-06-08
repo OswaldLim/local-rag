@@ -1,8 +1,7 @@
-from qdrant_client import QdrantClient, models
+from qdrant_client import QdrantClient
 from qdrant_client.models import PointStruct
 from langchain_ollama import OllamaEmbeddings, OllamaLLM
 from langchain_qdrant import QdrantVectorStore
-from fastembed import SparseTextEmbedding, LateInteractionTextEmbedding
 import uuid
 
 embedding_model = OllamaEmbeddings(
@@ -10,19 +9,16 @@ embedding_model = OllamaEmbeddings(
     base_url="http://ollama:11434"
 )
 
-sparse_embedding_model = SparseTextEmbedding("Qdrant/bm25")
-late_interaction_embedding_model = LateInteractionTextEmbedding("colbert-ir/colbertv2.0")
-
-
 llm = OllamaLLM(
     model="llama3.2",
-    base_url="http://ollama:11434"
+    base_url="http://ollama:11434",
+    temperature=0.5
 )
 
 qdrant = QdrantClient(host="qdrant", port=6333)
 COLLECTION_NAME = "rag_docs"
 
-qdrant.delete_collection(collection_name=COLLECTION_NAME)
+# qdrant.delete_collection(collection_name=COLLECTION_NAME)
 
 if not qdrant.collection_exists(COLLECTION_NAME):
     qdrant.create_collection(
@@ -57,63 +53,61 @@ def ingest_document(text_chunks: list):
     qdrant.upsert(collection_name=COLLECTION_NAME, points=points)
     return len(points)
 
-def query_rag(query: str, top_k: int = 7) -> str:
+def query_rag(query: str, top_k: int = 10) -> str:
     # Embed query
     query_vector = embedding_model.embed_query(query)
-    if "table" in query:
-        query_filter = models.Filter(
-            must=[
-                models.FieldCondition(
-                    key="category",
-                    match=models.MatchValue(value="Table")
-                )
-            ]
-        )
-        result = qdrant.query_points(
-            collection_name=COLLECTION_NAME, 
-            query=query_vector,
-            with_payload=True,
-            query_filter=query_filter,
-            limit=top_k)
-    else:
-        result = qdrant.query_points(
+    result = qdrant.query_points(
             collection_name=COLLECTION_NAME, 
             query=query_vector,
             limit=top_k)
     print("FINISH QUERYing points!!!!!")
 
-
-    list_of_scored_points = [tups for scored_points in result for tups in scored_points][1]
-
-    print(f"\n\n{list_of_scored_points}\n\n")
-
-    context = "\n\n".join([f"text: {text.payload["text"]}, file: {text.payload["filename"]}" for text in list_of_scored_points])
-
+    # New version
+    context = format_context(result.points)
 
     print(f"ContextSTTTTT\n\n{context}\n\n")
 
     prompt = f"""
-    You are an assistant answering based on provided context.
-
-    Instructions:
-    - Use ALL relevant information from the context
-    - Provide a COMPLETE answer
-    - Do not omit important details
-    - If the answer spans multiple parts, include all of them
-    - Answer only if the context is relevant else say you don't know
-    - Answer don't know if no context is provided
-
+    You are an expert assistant. Answer the question using ONLY the context provided below.
+    
     Context:
     {context}
     
     Question: {query}
     
-    show the doc_name at the end of the answer as reference - there can be multiple doc_names in the form of doc_name: document name.
+    Instructions:
+    1. If the answer cannot be found in the context, say "I don't know."
+    2. Provide a comprehensive, detailed answer.
+    3. At the end of your response, list all unique sources used in the format: "References: [filename1], [filename2]".
     
     Answer:
     """
 
     response = llm.invoke(prompt)
 
-    return response
+    return response.content if hasattr(response, 'content') else response
 
+
+
+def format_context(qdrant_points, include_tables=True, include_images_as_text=True):
+    """
+    Tailored for Qdrant payload structure.
+    Expects qdrant_points: list of ScoredPoint objects from query_points().
+    """
+    lines = []
+    for i, p in enumerate(qdrant_points, 1):
+        payload = p.payload
+        # Determine modality from your stored metadata
+        m = payload.get("modality", "text") 
+        content = payload.get("text", "") # The summary stored in payload
+        original = payload.get("original", "")
+        filename = payload.get("filename", "Unknown")
+
+        if m == "text":
+            lines.append(f"[{i}] TEXT (from {filename}) — Original: {original}")
+        elif m == "table" and include_tables:
+            lines.append(f"[{i}] TABLE (from {filename}) — Summary: {content}")
+        elif m == "image" and include_images_as_text:
+            lines.append(f"[{i}] IMAGE (from {filename}) — Summary: {content}")
+            
+    return "\n\n".join(lines)
