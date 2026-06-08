@@ -10,19 +10,16 @@ langchain-qdrant
 
 # Vector database
 qdrant-client
-fastembed
 
 # LLM (local)
 ollama
 
 # Document loading
 unstructured[all-docs]
-pytesseract>=0.3.10
+pytesseract>=0.3.13
 pi_heif
-pillow>=10.0.0
-pytesseract>=0.3.10
-opencv-python-headless>=4.9.0
-numpy>=1.26.0
+pillow>=12.1.0
+numpy>=2.1.3
 
 
 # Utilities
