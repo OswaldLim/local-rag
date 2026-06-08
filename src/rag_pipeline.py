@@ -82,7 +82,7 @@ def query_rag(query: str, top_k: int = 10) -> str:
     Instructions:
     1. If the answer cannot be found in the context, say "I don't know."
     2. Provide a comprehensive, detailed answer.
-    3. At the end of your response, list all unique sources used in the format: "References: [filename1], [filename2]".
+    3. At the end of your response, list all file names used in the final answer: "References: [filename1], [filename2]".
     
     Answer:
     """

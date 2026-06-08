@@ -4,6 +4,7 @@ from langchain_classic.schema import Document
 from langchain_ollama import OllamaLLM, ChatOllama
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
+from itertools import batched
 import uuid
 import base64
 
@@ -222,9 +223,13 @@ def create_summary(tables, texts):
     # model = ChatOllama(temperature=0.5, model="llama3.2", base_url="http://localhost:11434")
     summarize_chain = {"element": lambda x: x} | prompt | model | StrOutputParser()
 
-    text_summaries = summarize_chain.batch(texts, {"max_concurrency": 1})
+    text_summaries = []
+    table_summaries = []
+    for batch in batched(texts, 10):
+        text_summaries.extend(summarize_chain.batch(list(batch), {"max_concurrency": 5}))
     tables_html = [table.metadata.text_as_html for table in tables]
-    table_summaries = summarize_chain.batch(tables_html, {"max_concurrency": 2})
+    for batch in batched(tables_html, 10):
+        table_summaries.extend(summarize_chain.batch(tables_html, {"max_concurrency": 5}))
 
     return text_summaries, table_summaries, tables_html
 
