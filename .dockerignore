@@ -5,3 +5,4 @@ __pycache__
 .git
 node_modules
 *.log
+hf_cache
