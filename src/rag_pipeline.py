@@ -18,7 +18,7 @@ llm = OllamaLLM(
 qdrant = QdrantClient(host="qdrant", port=6333)
 COLLECTION_NAME = "rag_docs"
 
-# qdrant.delete_collection(collection_name=COLLECTION_NAME)
+qdrant.delete_collection(collection_name=COLLECTION_NAME)
 
 if not qdrant.collection_exists(COLLECTION_NAME):
     qdrant.create_collection(
@@ -34,20 +34,26 @@ vector_store = QdrantVectorStore(
 )
 
 def ingest_document(text_chunks: list):
-    points = []
-    print(f"INGESTING DOCUMENTSSSS\n  {text_chunks}", flush=True)
-    if len(text_chunks) == 0:
+    if not text_chunks:
         return 0
-    for i, chunk in enumerate(text_chunks):
-        vector = embedding_model.embed_query(chunk.page_content)
-        points.append(PointStruct(
+    print(f"INGESTING DOCUMENTSSSS\n  {text_chunks}", flush=True)
+    
+    texts = [chunk.page_content for chunk in text_chunks]
+
+    vectors = embedding_model.embed_documents(texts)
+
+    points = [
+        PointStruct(
             id=str(uuid.uuid4()),
-            vector=vector,
+            vector=vectors[i],
             payload={
                 "text": chunk.page_content,
                 **chunk.metadata
             }
-        ))
+        )
+        for i, chunk in enumerate(text_chunks)
+    ]
+    
     qdrant.upsert(collection_name=COLLECTION_NAME, points=points)
     return len(points)
 
