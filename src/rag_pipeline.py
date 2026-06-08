@@ -35,7 +35,6 @@ vector_store = QdrantVectorStore(
 
 def ingest_document(text_chunks: list):
     points = []
-    sparse_points = []
     print(f"INGESTING DOCUMENTSSSS\n  {text_chunks}", flush=True)
     if len(text_chunks) == 0:
         return 0
@@ -49,7 +48,6 @@ def ingest_document(text_chunks: list):
                 **chunk.metadata
             }
         ))
-        sparse_points.append
     qdrant.upsert(collection_name=COLLECTION_NAME, points=points)
     return len(points)
 

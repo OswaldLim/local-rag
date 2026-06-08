@@ -73,6 +73,7 @@ def load_pdf(pdf_path):
         max_characters=10000,                  # defaults to 500
         combine_text_under_n_chars=2000,       # defaults to 0
         new_after_n_chars=6000,
+        lazy = True
     )
 
 
@@ -233,7 +234,9 @@ def create_summary(tables, texts):
 
 if __name__ == "__main__":
     print("start")
-    docs = load_pdf("test_files\\2. Medium Pressure Accel Valves-installation.pdf")
+    file_path = "test_files\\PDS_X30 FHMs_C_UnLck_MKT-0044.pdf"
+    # file_path = "test_files\\2. Medium Pressure Accel Valves-installation.pdf"
+    docs = load_pdf(file_path)
     for doc in docs:
         print(f"{doc.page_content}, {doc.metadata}\n\n")
     print(f"\n\n\n\n\n{type(doc)}")
