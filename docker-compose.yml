@@ -13,6 +13,12 @@ services:
     depends_on:
       - qdrant
       - ollama
+    volumes:
+      # Map a local folder to the container's huggingface cache directory
+      - ./hf_cache:/root/.cache/huggingface
+    environment:
+      # Explicitly set the cache directory
+      - HF_HOME=/root/.cache/huggingface
 
   n8n:
     image: n8nio/n8n
