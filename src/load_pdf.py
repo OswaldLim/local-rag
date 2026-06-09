@@ -99,13 +99,13 @@ def load_pdf(pdf_path):
 
     images = get_images_base64(chunks)
 
-    table_summary, tables_html = create_summary(tables=tables)
+    text_summary, table_summary, tables_html = create_summary(texts=texts,tables=tables)
     # print(table_summary, "\n\n")
     # print(tables_html, "\n\n")
     image_summary = summarize_image(images=images)
     # image_summary = []
 
-    return format_to_document(texts, tables_html=tables_html, table_summaries=table_summary, image_summaries= image_summary, images=images, filepath = pdf_path)
+    return format_to_document(texts=texts, text_summary=text_summary, tables_html=tables_html, table_summaries=table_summary, image_summaries= image_summary, images=images, filepath = pdf_path)
 
 def display_base64_image(b64_string):
     import io
@@ -121,14 +121,14 @@ def display_base64_image(b64_string):
     # Display the image
     image.show()
 
-def format_to_document(texts, tables_html, table_summaries, images, image_summaries, filepath):
+def format_to_document(texts, text_summary, tables_html, table_summaries, images, image_summaries, filepath):
     # 1) Make flat Documents for each modality (page_content = summary; metadata keeps originals)
     docs = []
 
     # text
-    for original in texts:
+    for original, summary in zip(texts, text_summary):
         docs.append(Document(
-            page_content=original.page_content if hasattr(original, "page_content") else str(original),
+            page_content=summary,
             metadata={
                 "id": str(uuid.uuid4()),
                 "modality": "text",
@@ -222,17 +222,18 @@ def summarize_image(images):
     print("finish summarising images")
     return image_summaries
 
-def create_summary(tables):
+def create_summary(tables, texts):
     # Prompt
     prompt_text = """
-    You are an assistant tasked with summarizing tables.
+    You are an assistant tasked with summarizing tables and text.
+    Give a concise summary of the table or text. 
     When summarising tables summarise each row of data into a sentence.
 
     Respond only with the summary, no additionnal comment.
     Do not start your message by saying "Here is a summary" or anything like that.
     Just give the summary as it is.
 
-    Table chunk: {element}
+    Table or text chunk: {element}
 
     """
     prompt = ChatPromptTemplate.from_template(prompt_text)
@@ -242,15 +243,15 @@ def create_summary(tables):
     # model = ChatOllama(temperature=0.5, model="llama3.2", base_url="http://localhost:11434")
     summarize_chain = {"element": lambda x: x} | prompt | model | StrOutputParser()
 
+    text_summaries = []
     table_summaries = []
+    for batch in batched(texts, 10):
+        text_summaries.extend(summarize_chain.batch(list(batch), {"max_concurrency": 5}))
     tables_html = [table.metadata.text_as_html for table in tables]
     for batch in batched(tables_html, 10):
-        table_summaries.extend(summarize_chain.batch(list(batch), {"max_concurrency": 5}))
+        table_summaries.extend(summarize_chain.batch(tables_html, {"max_concurrency": 5}))
 
-    print("done summarising")
-
-    return table_summaries, tables_html
-
+    return text_summaries, table_summaries, tables_html
 
 
 
