@@ -13,7 +13,7 @@ import time
 
 llm = OllamaLLM(
     model="llama3.2",
-    base_url="http://localhost:11434"
+    base_url="http://ollama:11434"
 )
 
 
@@ -80,12 +80,6 @@ def load_pdf(pdf_path):
         lazy = True
     )
 
-
-    print(f"Loaded {len(chunks)} documents(s) from PDF")
-    global endtime1
-    endtime1 = time.perf_counter()
-    elapsed_time = endtime1 - start_time
-    print(f"The code took {elapsed_time:.4f} seconds to run.")
     tables = []
     texts = []
 
@@ -184,7 +178,7 @@ def get_images_base64(chunks):
     return images_b64
 
 def summarize_image(images):
-    model = ChatOllama(model="llava", temperature=0, base_url="http://localhost:11434")
+    model = ChatOllama(model="llava", temperature=0, base_url="http://ollama:11434")
 
     prompt_template = """Describe the image in detail. Be specific about graphs, such as bar plots."""
 
@@ -200,20 +194,8 @@ def summarize_image(images):
         ])
     ])
 
-    def debug_print(x):
-        print(f"DEBUG DATA: {x}")
-        global start_time
-        endtime3 = time.perf_counter()
-        elapsed_time = endtime3 - start_time
-        print(f"\n\nThe code took {elapsed_time:.4f} seconds to run.")
-        return x
-
-    def debug_finish(x):
-        print("finish")
-        return x
 
     # 3. Create the chain
-    # chain = prompt | RunnableLambda(debug_print) | model | RunnableLambda(debug_finish) | StrOutputParser()
     chain = prompt | model | StrOutputParser()
 
 
@@ -238,10 +220,6 @@ def summarize_image(images):
     # image_summaries = chain.batch([{"image": img} for img in images], config={'max_concurrency': 1})
 
     print("finish summarising images")
-    global endtime3
-    endtime3 = time.perf_counter()
-    elapsed_time = endtime3 - start_time
-    print(f"The code took {elapsed_time:.4f} seconds to run.")
     return image_summaries
 
 def create_summary(tables):
@@ -260,8 +238,8 @@ def create_summary(tables):
     prompt = ChatPromptTemplate.from_template(prompt_text)
 
     # Summary chain
-    # model = ChatOllama(temperature=0.5, model="llama3.2", base_url="http://ollama:11434")
-    model = ChatOllama(temperature=0.5, model="llama3.2", base_url="http://localhost:11434")
+    model = ChatOllama(temperature=0.5, model="llama3.2", base_url="http://ollama:11434")
+    # model = ChatOllama(temperature=0.5, model="llama3.2", base_url="http://localhost:11434")
     summarize_chain = {"element": lambda x: x} | prompt | model | StrOutputParser()
 
     table_summaries = []
@@ -270,10 +248,7 @@ def create_summary(tables):
         table_summaries.extend(summarize_chain.batch(list(batch), {"max_concurrency": 5}))
 
     print("done summarising")
-    global endtime2
-    endtime2 = time.perf_counter()
-    elapsed_time = endtime2 - start_time
-    print(f"The code took {elapsed_time:.4f} seconds to run.")
+
     return table_summaries, tables_html
 
 
