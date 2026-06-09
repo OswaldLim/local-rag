@@ -108,8 +108,8 @@ def load_pdf(pdf_path):
     table_summary, tables_html = create_summary(tables=tables)
     # print(table_summary, "\n\n")
     # print(tables_html, "\n\n")
-    # image_summary = summarize_image(images=images)
-    image_summary = []
+    image_summary = summarize_image(images=images)
+    # image_summary = []
 
     return format_to_document(texts, tables_html=tables_html, table_summaries=table_summary, image_summaries= image_summary, images=images, filepath = pdf_path)
 
@@ -134,7 +134,7 @@ def format_to_document(texts, tables_html, table_summaries, images, image_summar
     # text
     for original in texts:
         docs.append(Document(
-            page_content=original.page_content,
+            page_content=original.page_content if hasattr(original, "page_content") else str(original),
             metadata={
                 "id": str(uuid.uuid4()),
                 "modality": "text",
