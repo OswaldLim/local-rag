@@ -18,7 +18,7 @@ llm = OllamaLLM(
 qdrant = QdrantClient(host="qdrant", port=6333)
 COLLECTION_NAME = "rag_docs"
 
-qdrant.delete_collection(collection_name=COLLECTION_NAME)
+# qdrant.delete_collection(collection_name=COLLECTION_NAME)
 
 if not qdrant.collection_exists(COLLECTION_NAME):
     qdrant.create_collection(
