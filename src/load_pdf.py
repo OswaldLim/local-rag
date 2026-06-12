@@ -6,14 +6,18 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnableLambda
 from itertools import batched
+import asyncio
+from ollama import AsyncClient
 import uuid
 import base64
+from PIL import Image
+import io
 
 import time
 
 llm = OllamaLLM(
     model="llama3.2",
-    base_url="http://ollama:11434"
+    base_url="http://localhost:11434"
 )
 
 
@@ -65,7 +69,7 @@ def combine_documents(documents):
     flush()
     return combined
 
-def load_pdf(pdf_path):
+async def load_pdf(pdf_path):
     chunks = partition_pdf(
         filename=pdf_path,
         mode="elements",
@@ -98,11 +102,12 @@ def load_pdf(pdf_path):
 
 
     images = get_images_base64(chunks)
+    filtered_images = filter_resize_image(images)
 
     table_summary, tables_html = create_summary(tables=tables)
     # print(table_summary, "\n\n")
     # print(tables_html, "\n\n")
-    image_summary = summarize_image(images=images)
+    image_summary = await summarize_image(images=filtered_images)
     # image_summary = []
 
     return format_to_document(texts, tables_html=tables_html, table_summaries=table_summary, image_summaries= image_summary, images=images, filepath = pdf_path)
@@ -177,10 +182,63 @@ def get_images_base64(chunks):
                     images_b64.append(el.metadata.image_base64)
     return images_b64
 
-def summarize_image(images):
-    model = ChatOllama(model="llava", temperature=0, base_url="http://ollama:11434")
+def resize_if_large(b64_string, threshold_kb=5):
+    # 1. Remove prefix if present
+    header, encoded = b64_string.split(",", 1) if "," in b64_string else ("", b64_string)
+    
+    # 2. Check size (5KB = 5120 bytes)
+    size_bytes = (len(encoded) * 3) // 4
+    if size_bytes < (threshold_kb * 1024):
+        return b64_string # Return original if small
 
-    prompt_template = """Describe the image in detail. Be specific about graphs, such as bar plots."""
+    # 3. Resize if too big
+    img_data = base64.b64decode(encoded)
+    img = Image.open(io.BytesIO(img_data))
+    
+    # Resize keeping aspect ratio
+    img.thumbnail((1024, 1024)) 
+    
+    # 4. Convert back to base64
+    buffered = io.BytesIO()
+    img.save(buffered, format="JPEG", quality=85)
+    new_b64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
+    
+    return f"{header},{new_b64}" if header else new_b64
+
+def filter_resize_image(images):
+    filtered_images = []
+    
+    for img in images:
+        # 1. Calculate size in KB
+        size_kb = get_base64_image_size_bytes(img) / 1024
+        
+        # 2. Filter: Only keep images > 2KB (assuming these are meaningful)
+        if size_kb > 2.5:
+            # 3. Resize: Pass through the resize function if it's "large"
+            # (e.g., > 50KB or whatever threshold you choose)
+            processed_img = resize_if_large(img, threshold_kb=50)
+            filtered_images.append(processed_img)
+            
+    return filtered_images
+
+def get_base64_image_size_bytes(b64_string):
+    # If your string has a prefix like "data:image/jpeg;base64,", remove it first
+    if "," in b64_string:
+        b64_string = b64_string.split(",")[1]
+        
+    # Calculate size
+    return (len(b64_string) * 3) // 4 - b64_string.count('=', -2)
+
+async def summarize_image(images):
+    model = ChatOllama(model="llava", temperature=0, base_url="http://localhost:11434")
+
+    prompt_template = """
+        Describe the image in detail. 
+        Follow this structure: 
+        1. Overview: What is this image? 
+        2. Details: Key trends, data points, or labels (use bullet points). 
+        Keep the total response under 250 words and be concise.
+        """
 
     print(len(images))
 
@@ -201,21 +259,29 @@ def summarize_image(images):
 
     # 4. Run the batch
     # Pass a list of dictionaries with the key 'image' containing your base64 strings
-    image_summaries = []
-    for index, img in enumerate(images):
-        print(f"--- Processing image {index + 1} ---")
+    # image_summaries = []
+    # for index, img in enumerate(images):
+    #     print(f"--- Processing image {index + 1} ---")
         
-        try:
-            # invoke() processes one image at a time
-            result = chain.invoke({"image": img})
-            image_summaries.append(result)
+    #     try:
+    #         # invoke() processes one image at a time
+    #         result = chain.invoke({"image": img})
+    #         image_summaries.append(result)
             
-            print(f"Successfully processed image {index + 1}.")
-            print(f"Summary: {result[:50]}...") # Preview the summary
+    #         print(f"Successfully processed image {index + 1}.")
+    #         print(f"Summary: {result[:50]}...") # Preview the summary
             
-        except Exception as e:
-            print(f"Error processing image {index + 1}: {e}")
-            image_summaries.append(None)
+    #     except Exception as e:
+    #         print(f"Error processing image {index + 1}: {e}")
+    #         image_summaries.append(None)
+
+    # parallel batching
+    image_summaries = await chain.abatch(
+        [{"image": img} for img in images],
+        config={'max_concurrency': 4}
+    )
+
+    print(f"\n\n{image_summaries}\n\n")
 
     # image_summaries = chain.batch([{"image": img} for img in images], config={'max_concurrency': 1})
 
@@ -238,14 +304,14 @@ def create_summary(tables):
     prompt = ChatPromptTemplate.from_template(prompt_text)
 
     # Summary chain
-    model = ChatOllama(temperature=0.5, model="llama3.2", base_url="http://ollama:11434")
-    # model = ChatOllama(temperature=0.5, model="llama3.2", base_url="http://localhost:11434")
+    # model = ChatOllama(temperature=0.5, model="llama3.2", base_url="http://ollama:11434")
+    model = ChatOllama(temperature=0.5, model="llama3.2", base_url="http://localhost:11434")
     summarize_chain = {"element": lambda x: x} | prompt | model | StrOutputParser()
 
     table_summaries = []
     tables_html = [table.metadata.text_as_html for table in tables]
     for batch in batched(tables_html, 10):
-        table_summaries.extend(summarize_chain.batch(list(batch), {"max_concurrency": 5}))
+        table_summaries.extend(summarize_chain.batch(list(batch), {"max_concurrency": 4}))
 
     print("done summarising")
 
@@ -278,7 +344,9 @@ if __name__ == "__main__":
     # output = summarize_image([image_64])
     # print(output[0])
 
-    docs = load_pdf(file_path)
-    for doc in docs:
-        print(f"{doc.page_content}, {doc.metadata}\n\n")
+    docs = asyncio.run(load_pdf(file_path))
+    endtime = time.perf_counter()
+    print(f"FINISHED: {endtime - start_time}")
+    # for doc in docs:
+    #     print(f"{doc.page_content}, {doc.metadata}\n\n")
 
