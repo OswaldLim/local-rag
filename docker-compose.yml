@@ -54,6 +54,10 @@ services:
       -  C:/Users/Lenovo/.ollama:/root/.ollama
     networks:
       - backend
+    environment:
+      - OLLAMA_NUM_PARALLEL=4
+      - OLLAMA_MAX_LOADED_MODELS=2
+      - OLLAMA_KEEP_ALIVE=-1 # Keeps models in VRAM indefinitely
     command: ["serve"]
 
 volumes:
