@@ -15,9 +15,11 @@ import io
 
 import time
 
+URL = "http://localhost:11434"
+
 llm = OllamaLLM(
     model="llama3.2",
-    base_url="http://localhost:11434"
+    base_url=URL
 )
 
 
@@ -230,7 +232,7 @@ def get_base64_image_size_bytes(b64_string):
     return (len(b64_string) * 3) // 4 - b64_string.count('=', -2)
 
 async def summarize_image(images):
-    model = ChatOllama(model="llava", temperature=0, base_url="http://localhost:11434")
+    model = ChatOllama(model="llava", temperature=0, base_url=URL)
 
     prompt_template = """
         Describe the image in detail. 
@@ -304,8 +306,7 @@ def create_summary(tables):
     prompt = ChatPromptTemplate.from_template(prompt_text)
 
     # Summary chain
-    # model = ChatOllama(temperature=0.5, model="llama3.2", base_url="http://ollama:11434")
-    model = ChatOllama(temperature=0.5, model="llama3.2", base_url="http://localhost:11434")
+    model = ChatOllama(temperature=0.5, model="llama3.2", base_url=URL)
     summarize_chain = {"element": lambda x: x} | prompt | model | StrOutputParser()
 
     table_summaries = []
