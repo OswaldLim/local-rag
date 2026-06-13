@@ -20,55 +20,7 @@ llm = OllamaLLM(
     base_url=URL
 )
 
-
-def combine_documents(documents):
-    combined = []
-    buffer = []
-    current_metadata = None
-
-    def flush():
-        nonlocal buffer, current_metadata
-        if not buffer:
-            return
-
-        text = "\n".join(buffer).strip()
-        if text:
-            combined.append(
-                Document(
-                    page_content=text,
-                    metadata=current_metadata or {}
-                )
-            )
-
-        buffer = []
-        current_metadata = None
-
-    for doc in documents:
-        category = doc.metadata.get("category", "")
-        text = doc.page_content.strip()
-
-        # TABLES: keep standalone
-        if doc.metadata.get("source") == "table" or category == "Table":
-            flush()
-            combined.append(doc)
-            continue
-
-        # HEADER/TITLE: start new block
-        if category in ["Title", "Header"]:
-            flush()
-            buffer.append(text)
-            current_metadata = doc.metadata
-            continue
-
-        # NORMAL TEXT
-        if not buffer:
-            current_metadata = doc.metadata
-
-        buffer.append(text)
-
-    flush()
-    return combined
-
+# Main function for loading pdf
 async def load_pdf(pdf_path):
     chunks = partition_pdf(
         filename=pdf_path,
@@ -118,6 +70,8 @@ async def load_pdf(pdf_path):
     async for doc in format_to_document(texts, tables_html=tables_html, table_summaries=table_summary, image_summaries= image_summary, images=images, filepath = pdf_path):
         yield doc
 
+
+# Image Handling Functions Below
 def display_base64_image(b64_string):
     import io
     from PIL import Image
@@ -131,47 +85,6 @@ def display_base64_image(b64_string):
     
     # Display the image
     image.show()
-
-async def format_to_document(texts, tables_html, table_summaries, images, image_summaries, filepath):
-    # 1) Make flat Documents for each modality (page_content = summary; metadata keeps originals)
-
-    # text
-    for original in texts:
-        yield (Document(
-            page_content=original.page_content if hasattr(original, "page_content") else str(original),
-            metadata={
-                "id": str(uuid.uuid4()),
-                "modality": "text",
-                "original": original.page_content if hasattr(original, "page_content") else str(original),
-                "filename":filepath
-            }
-        ))
-
-    # tables
-    for original_html, summary in zip(tables_html, table_summaries):
-        # print("\n\nAppending Table\n\n")
-        yield (Document(
-            page_content=summary,
-            metadata={
-                "id": str(uuid.uuid4()),
-                "modality": "table",
-                "original": original_html,
-                "filename":filepath
-            }
-        ))
-
-    # images (store the base64 so we can attach it later if needed)
-    for b64, summary in zip(images, image_summaries):
-        yield (Document(
-            page_content=summary,   # image summary text
-            metadata={
-                "id": str(uuid.uuid4()),
-                "modality": "image",
-                "image_b64": b64,
-                "filename":filepath
-            }
-        ))
-
 
 def get_images_base64(chunks):
     images_b64 = []
@@ -300,6 +213,7 @@ async def summarize_image(images):
     # print("finish summarising images")
     # return image_summaries
 
+# Text and Table Handling
 def create_summary(tables):
     # Prompt
     prompt_text = """
@@ -329,7 +243,49 @@ def create_summary(tables):
     return table_summaries, tables_html
 
 
+# Used for formatting documents
+async def format_to_document(texts, tables_html, table_summaries, images, image_summaries, filepath):
+    # 1) Make flat Documents for each modality (page_content = summary; metadata keeps originals)
 
+    # text
+    for original in texts:
+        yield (Document(
+            page_content=original.page_content if hasattr(original, "page_content") else str(original),
+            metadata={
+                "id": str(uuid.uuid4()),
+                "modality": "text",
+                "original": original.page_content if hasattr(original, "page_content") else str(original),
+                "filename":filepath
+            }
+        ))
+
+    # tables
+    for original_html, summary in zip(tables_html, table_summaries):
+        # print("\n\nAppending Table\n\n")
+        yield (Document(
+            page_content=summary,
+            metadata={
+                "id": str(uuid.uuid4()),
+                "modality": "table",
+                "original": original_html,
+                "filename":filepath
+            }
+        ))
+
+    # images (store the base64 so we can attach it later if needed)
+    for b64, summary in zip(images, image_summaries):
+        yield (Document(
+            page_content=summary,   # image summary text
+            metadata={
+                "id": str(uuid.uuid4()),
+                "modality": "image",
+                "image_b64": b64,
+                "filename":filepath
+            }
+        ))
+
+
+# Local Testing code
 async def main():
     start_time = time.perf_counter()
     print("start")
