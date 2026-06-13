@@ -1,25 +1,27 @@
 import os
 import pandas as pd
 from typing import List
+import asyncio
 from docx import Document
 from pptx import Presentation
 from .load_pdf import load_pdf
 
-def load_document(file_path: str) -> List[str]:
+async def load_document(file_path: str):
     ext = os.path.splitext(file_path)[1].lower()
 
     if ext == ".pdf":
-        return load_pdf(file_path)
-    elif ext in ".docx":
-        return load_doc(file_path)
-    elif ext == ".txt":
-        return load_txt(file_path)
-    elif ext == ".csv":
-        return load_csv(file_path)
-    elif ext in [".xls", ".xlsx"]:
-        return load_excel(file_path)
-    elif ext in [".pptx", ".ppt"]:
-        return load_ppt(file_path)
+        async for doc in load_pdf(file_path):
+            yield doc
+    # elif ext in ".docx":
+    #     return load_doc(file_path)
+    # elif ext == ".txt":
+    #     return load_txt(file_path)
+    # elif ext == ".csv":
+    #     return load_csv(file_path)
+    # elif ext in [".xls", ".xlsx"]:
+    #     return load_excel(file_path)
+    # elif ext in [".pptx", ".ppt"]:
+    #     return load_ppt(file_path)
     else:
         raise ValueError(f"Unsupported file type: {ext}")
 

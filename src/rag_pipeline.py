@@ -18,7 +18,7 @@ llm = OllamaLLM(
 qdrant = QdrantClient(host="qdrant", port=6333)
 COLLECTION_NAME = "rag_docs"
 
-# qdrant.delete_collection(collection_name=COLLECTION_NAME)
+qdrant.delete_collection(collection_name=COLLECTION_NAME)
 
 if not qdrant.collection_exists(COLLECTION_NAME):
     qdrant.create_collection(
@@ -33,14 +33,35 @@ vector_store = QdrantVectorStore(
     embedding=embedding_model
 )
 
-def ingest_document(text_chunks: list):
+async def ingest_with_buffer(document_generator, buffer_size=10):
+    buffer = []
+    count = 0
+    
+    # Iterate through the async generator
+    async for doc in document_generator:
+        buffer.append(doc)
+        
+        # When buffer hits the limit, ingest and clear
+        if len(buffer) >= buffer_size:
+            await ingest_batch(buffer)
+            count += len(buffer)
+            buffer = [] # Clear buffer
+            
+    # Ingest any remaining items in the buffer
+    if buffer:
+        await ingest_batch(buffer)
+        count += len(buffer)
+        
+    yield count
+
+async def ingest_batch(text_chunks: list):
     if not text_chunks:
         return 0
     print(f"INGESTING DOCUMENTSSSS\n  {text_chunks}", flush=True)
     
     texts = [chunk.page_content for chunk in text_chunks]
 
-    vectors = embedding_model.embed_documents(texts)
+    vectors = await embedding_model.aembed_documents(texts)
 
     points = [
         PointStruct(
@@ -55,7 +76,7 @@ def ingest_document(text_chunks: list):
     ]
     
     qdrant.upsert(collection_name=COLLECTION_NAME, points=points)
-    return len(points)
+
 
 def query_rag(query: str, top_k: int = 10) -> str:
     # Embed query
