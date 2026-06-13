@@ -4,10 +4,8 @@ from langchain_classic.schema import Document
 from langchain_ollama import OllamaLLM, ChatOllama
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
-from langchain_core.runnables import RunnableLambda
 from itertools import batched
 import asyncio
-from ollama import AsyncClient
 import uuid
 import base64
 from PIL import Image
@@ -15,7 +13,7 @@ import io
 
 import time
 
-URL = "http://localhost:11434"
+URL = "http://ollama:11434"
 
 llm = OllamaLLM(
     model="llama3.2",
@@ -117,7 +115,8 @@ async def load_pdf(pdf_path):
 
     # image_summary = []
 
-    return format_to_document(texts, tables_html=tables_html, table_summaries=table_summary, image_summaries= image_summary, images=images, filepath = pdf_path)
+    async for doc in format_to_document(texts, tables_html=tables_html, table_summaries=table_summary, image_summaries= image_summary, images=images, filepath = pdf_path):
+        yield doc
 
 def display_base64_image(b64_string):
     import io
@@ -133,13 +132,12 @@ def display_base64_image(b64_string):
     # Display the image
     image.show()
 
-def format_to_document(texts, tables_html, table_summaries, images, image_summaries, filepath):
+async def format_to_document(texts, tables_html, table_summaries, images, image_summaries, filepath):
     # 1) Make flat Documents for each modality (page_content = summary; metadata keeps originals)
-    docs = []
 
     # text
     for original in texts:
-        docs.append(Document(
+        yield (Document(
             page_content=original.page_content if hasattr(original, "page_content") else str(original),
             metadata={
                 "id": str(uuid.uuid4()),
@@ -152,7 +150,7 @@ def format_to_document(texts, tables_html, table_summaries, images, image_summar
     # tables
     for original_html, summary in zip(tables_html, table_summaries):
         # print("\n\nAppending Table\n\n")
-        docs.append(Document(
+        yield (Document(
             page_content=summary,
             metadata={
                 "id": str(uuid.uuid4()),
@@ -164,7 +162,7 @@ def format_to_document(texts, tables_html, table_summaries, images, image_summar
 
     # images (store the base64 so we can attach it later if needed)
     for b64, summary in zip(images, image_summaries):
-        docs.append(Document(
+        yield (Document(
             page_content=summary,   # image summary text
             metadata={
                 "id": str(uuid.uuid4()),
@@ -173,10 +171,6 @@ def format_to_document(texts, tables_html, table_summaries, images, image_summar
                 "filename":filepath
             }
         ))
-
-    # print(len(docs))
-
-    return docs
 
 
 def get_images_base64(chunks):
@@ -237,7 +231,7 @@ def get_base64_image_size_bytes(b64_string):
     return (len(b64_string) * 3) // 4 - b64_string.count('=', -2)
 
 async def summarize_image(images):
-    model = ChatOllama(model="llava", temperature=0, base_url=URL)
+    model = ChatOllama(model="moondream", temperature=0, base_url=URL)
 
     prompt_template = """
         Describe the image in detail. 
@@ -336,34 +330,22 @@ def create_summary(tables):
 
 
 
-
-
-if __name__ == "__main__":
-    global start_time
+async def main():
     start_time = time.perf_counter()
     print("start")
-    # file_path = "test_files\\PDS_X30 FHMs_C_UnLck_MKT-0044.pdf"
+    
     file_path = "test_files\\2. Medium Pressure Accel Valves-installation.pdf"
-    image_path =  "C:\\Users\\Lenovo\\Desktop\\SCHOOL\\Personal\\Others\\profile_new.jpg"
 
-    # def image_to_base64(image_path):
-    #     with open(image_path, "rb") as image_file:
-    #         # Read the binary data
-    #         binary_data = image_file.read()
-    #         # Encode to base64
-    #         base64_encoded_data = base64.b64encode(binary_data)
-    #         # Convert to string and decode to UTF-8
-    #         base64_string = base64_encoded_data.decode('utf-8')
-    #         return base64_string
-
-    # image_64 = image_to_base64(image_path)
-    # print(f"Finished converting image: {image_64}")
-    # output = summarize_image([image_64])
-    # print(output[0])
-
-    docs = asyncio.run(load_pdf(file_path))
+    # 1. Capture the generator object
+    doc_generator = load_pdf(file_path)
+    
+    # 2. Consume the generator stream
+    async for doc in doc_generator:
+        # Process or print individual docs as they arrive
+        print(f"Ingested chunk: {doc.metadata['modality']} - {doc.page_content[:50]}...")
+    
     endtime = time.perf_counter()
     print(f"FINISHED: {endtime - start_time}")
-    # for doc in docs:
-    #     print(f"{doc.page_content}, {doc.metadata}\n\n")
 
+if __name__ == "__main__":
+    asyncio.run(main())
