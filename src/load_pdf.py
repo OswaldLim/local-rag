@@ -13,7 +13,7 @@ import io
 
 import time
 
-URL = "http://ollama:11434"
+URL = "http://localhost:11434"
 
 llm = OllamaLLM(
     model="llama3.2",
@@ -22,80 +22,53 @@ llm = OllamaLLM(
 
 # Main function for loading pdf
 async def load_pdf(pdf_path):
+    # 1. Use lazy partitioning (this is already a generator)
     chunks = partition_pdf(
         filename=pdf_path,
         mode="elements",
         strategy="hi_res",
         infer_table_structure=True,
-        extract_image_block_types=["Image", "Table"],   # Add 'Table' to list to extract image of tables
-        extract_image_block_to_payload=True,   # if true, will extract base64 for API usage
-        chunking_strategy="by_title",          # or 'basic'
-        max_characters=10000,                  # defaults to 500
-        combine_text_under_n_chars=2000,       # defaults to 0
+        extract_image_block_types=["Image", "Table"],
+        extract_image_block_to_payload=True,
+        chunking_strategy="by_title",
+        max_characters=10000,
+        combine_text_under_n_chars=2000,
         new_after_n_chars=6000,
-        lazy = True
+        lazy=True
     )
 
-    tables = []
-    texts = []
+    print(len(chunks))
 
+    # 2. Process element-by-element
     for chunk in chunks:
-        # print(str(type(chunk)))
-        if "CompositeElement" in str(type(chunk)):  # Check if it's a CompositeElement
-            # print(f"\n\nInside\n{chunk.metadata.orig_elements}\n")
-            for element in chunk.metadata.orig_elements:  # Iterate through its elements
-                # print(f"\n\nHIIIIIIII{element}\n\n")
-                if "Table" in str(type(element)):  # Now check for Table type
-                    # print(f"\n\ntable element: {element}\n\n")
-                    tables.append(element)  # Append the table element
-            texts.append(chunk)  # Still append the CompositeElement to texts
-        elif "Table" in str(type(chunk)):
-            tables.append(chunk)
-
-
-    images = get_images_base64(chunks)
-    filtered_images = filter_resize_image(images)
-
-    table_summary, tables_html = create_summary(tables=tables)
-    # print(table_summary, "\n\n")
-    # print(tables_html, "\n\n")
-    image_summary = []
-    
-    async for summary in summarize_image(filtered_images):
-        image_summary.append(summary)
-        print(f"Received summary: {summary[:30]}...")
-
-    # image_summary = []
-
-    async for doc in format_to_document(texts, tables_html=tables_html, table_summaries=table_summary, image_summaries= image_summary, images=images, filepath = pdf_path):
-        yield doc
-
+        # --- HANDLE TABLES ---
+        if "Table" in str(type(chunk)):
+            # Process table in real-time
+            summary, html = await process_table_async(chunk)
+            yield format_as_document(chunk, summary=summary, html=html, modality="table", filepath=pdf_path)
+            
+        # --- HANDLE COMPOSITE ELEMENTS (Text + Nested Tables) ---
+        # --- HANDLE COMPOSITE ELEMENTS (Text + Nested Images/Tables) ---
+        elif "CompositeElement" in str(type(chunk)):
+            # 1. Yield the text part of the composite first
+            yield format_as_document(chunk, modality="text", filepath=pdf_path)
+            
+            # 2. Dig into the nested elements
+            if hasattr(chunk.metadata, "orig_elements"):
+                for element in chunk.metadata.orig_elements:
+                    el_type = str(type(element))
+                    
+                    if "Table" in el_type:
+                        summary, html = await process_table_async(element)
+                        yield format_as_document(element, summary=summary, html=html, modality="table", filepath=pdf_path)
+                        
+                    elif "Image" in el_type:
+                        # Extract B64 from the nested element
+                        b64 = element.metadata.image_base64
+                        summary = await summarize_single_image(b64)
+                        yield format_as_document(element, summary=summary, b64=b64, modality="image", filepath=pdf_path)
 
 # Image Handling Functions Below
-def display_base64_image(b64_string):
-    import io
-    from PIL import Image
-
-    if ',' in b64_string:
-        b64_string = b64_string.split(',', 1)[1]
-        
-    # Decode and open the image
-    image_data = base64.b64decode(b64_string)
-    image = Image.open(io.BytesIO(image_data))
-    
-    # Display the image
-    image.show()
-
-def get_images_base64(chunks):
-    images_b64 = []
-    for chunk in chunks:
-        if "CompositeElement" in str(type(chunk)):
-            chunk_els = chunk.metadata.orig_elements
-            for el in chunk_els:
-                if "Image" in str(type(el)):
-                    images_b64.append(el.metadata.image_base64)
-    return images_b64
-
 def resize_if_large(b64_string, threshold_kb=5):
     # 1. Remove prefix if present
     header, encoded = b64_string.split(",", 1) if "," in b64_string else ("", b64_string)
@@ -119,21 +92,18 @@ def resize_if_large(b64_string, threshold_kb=5):
     
     return f"{header},{new_b64}" if header else new_b64
 
-def filter_resize_image(images):
-    filtered_images = []
+def filter_resize_image(image):
+    # 1. Calculate size in KB
+    size_kb = get_base64_image_size_bytes(image) / 1024
     
-    for img in images:
-        # 1. Calculate size in KB
-        size_kb = get_base64_image_size_bytes(img) / 1024
-        
-        # 2. Filter: Only keep images > 2KB (assuming these are meaningful)
-        if size_kb > 2.5:
-            # 3. Resize: Pass through the resize function if it's "large"
-            # (e.g., > 50KB or whatever threshold you choose)
-            processed_img = resize_if_large(img, threshold_kb=50)
-            filtered_images.append(processed_img)
-            
-    return filtered_images
+    # 2. Filter: Only keep images > 2KB (assuming these are meaningful)
+    if size_kb > 2.5:
+        # 3. Resize: Pass through the resize function if it's "large"
+        # (e.g., > 50KB or whatever threshold you choose)
+        processed_img = resize_if_large(image, threshold_kb=50)
+        return (processed_img)
+    return None    
+    
 
 def get_base64_image_size_bytes(b64_string):
     # If your string has a prefix like "data:image/jpeg;base64,", remove it first
@@ -143,148 +113,54 @@ def get_base64_image_size_bytes(b64_string):
     # Calculate size
     return (len(b64_string) * 3) // 4 - b64_string.count('=', -2)
 
-async def summarize_image(images):
+async def summarize_single_image(image_b64: str) -> str:
+    """Processes a single image base64 string."""
     model = ChatOllama(model="moondream", temperature=0, base_url=URL)
+    
+    if filter_resize_image(image_b64) == None:
+        return "Image too small"
 
-    prompt_template = """
-        Describe the image in detail. 
-        Follow this structure: 
-        1. Overview: What is this image? 
-        2. Details: Key trends, data points, or labels (use bullet points). 
-        Keep the total response under 200 words and be concise.
-        """
-
-    print(len(images))
-
-    # 2. Setup the prompt
-    # Note: Llama 3.2 Vision expects the image format within the message structure
     prompt = ChatPromptTemplate.from_messages([
         ("user", [
-            {"type": "text", "text": prompt_template},
-            # Ensure the variable name inside the URL matches the key in your input dict
-            {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,{image}"}}
+            {"type": "text", "text": "Describe the image in detail. Overview and key details. Under 200 words."},
+            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}}
         ])
     ])
-
-
-    # 3. Create the chain
+    
     chain = prompt | model | StrOutputParser()
-
-    semaphore = asyncio.Semaphore(4)
-
-    async def _process_single(img):
-        async with semaphore:
-            return await chain.ainvoke({"image": img})
-        
-    tasks = [_process_single(img) for img in images]
-
-    for completed_task in asyncio.as_completed(tasks):
-        result = await completed_task
-        yield result
-
-    # 4. Run the batch
-    # Pass a list of dictionaries with the key 'image' containing your base64 strings
-    # image_summaries = []
-    # for index, img in enumerate(images):
-    #     print(f"--- Processing image {index + 1} ---")
-        
-    #     try:
-    #         # invoke() processes one image at a time
-    #         result = chain.invoke({"image": img})
-    #         image_summaries.append(result)
-            
-    #         print(f"Successfully processed image {index + 1}.")
-    #         print(f"Summary: {result[:50]}...") # Preview the summary
-            
-    #     except Exception as e:
-    #         print(f"Error processing image {index + 1}: {e}")
-    #         image_summaries.append(None)
-
-    # parallel batching
-    # image_summaries = await chain.abatch(
-    #     [{"image": img} for img in images],
-    #     config={'max_concurrency': 4}
-    # )
-
-    # print(f"\n\n{image_summaries}\n\n")
-
-    # # image_summaries = chain.batch([{"image": img} for img in images], config={'max_concurrency': 1})
-
-    # print("finish summarising images")
-    # return image_summaries
+    return await chain.ainvoke({})
 
 # Text and Table Handling
-def create_summary(tables):
-    # Prompt
-    prompt_text = """
-    You are an assistant tasked with summarizing tables.
-    When summarising tables summarise each row of data into a sentence.
-
-    Respond only with the summary, no additionnal comment.
-    Do not start your message by saying "Here is a summary" or anything like that.
-    Just give the summary as it is.
-
-    Table chunk: {element}
-
-    """
-    prompt = ChatPromptTemplate.from_template(prompt_text)
-
-    # Summary chain
+async def process_table_async(table_element) -> tuple[str, str]:
+    """Summarizes a single table element."""
+    html = table_element.metadata.text_as_html
+    
+    prompt = ChatPromptTemplate.from_template(
+        "Summarize this table, summarizing each row of data into a sentence. "
+        "Return only the summary. Table content: {element}"
+    )
+    
     model = ChatOllama(temperature=0.5, model="llama3.2", base_url=URL)
-    summarize_chain = {"element": lambda x: x} | prompt | model | StrOutputParser()
-
-    table_summaries = []
-    tables_html = [table.metadata.text_as_html for table in tables]
-    for batch in batched(tables_html, 10):
-        table_summaries.extend(summarize_chain.batch(list(batch), {"max_concurrency": 4}))
-
-    print("done summarising")
-
-    return table_summaries, tables_html
-
+    chain = prompt | model | StrOutputParser()
+    
+    # Process immediately
+    summary = await chain.ainvoke({"element": html})
+    return summary, html
 
 # Used for formatting documents
-async def format_to_document(texts, tables_html, table_summaries, images, image_summaries, filepath):
-    # 1) Make flat Documents for each modality (page_content = summary; metadata keeps originals)
-
-    # text
-    for original in texts:
-        yield (Document(
-            page_content=original.page_content if hasattr(original, "page_content") else str(original),
-            metadata={
-                "id": str(uuid.uuid4()),
-                "modality": "text",
-                "original": original.page_content if hasattr(original, "page_content") else str(original),
-                "filename":filepath
-            }
-        ))
-
-    # tables
-    for original_html, summary in zip(tables_html, table_summaries):
-        # print("\n\nAppending Table\n\n")
-        yield (Document(
-            page_content=summary,
-            metadata={
-                "id": str(uuid.uuid4()),
-                "modality": "table",
-                "original": original_html,
-                "filename":filepath
-            }
-        ))
-
-    # images (store the base64 so we can attach it later if needed)
-    for b64, summary in zip(images, image_summaries):
-        yield (Document(
-            page_content=summary,   # image summary text
-            metadata={
-                "id": str(uuid.uuid4()),
-                "modality": "image",
-                "image_b64": b64,
-                "filename":filepath
-            }
-        ))
-
-
+def format_as_document(element, summary=None, html=None, b64=None, modality="text", filepath=""):
+    content = summary if summary else (element.page_content if hasattr(element, "page_content") else str(element))
+    original = html if html else (b64 if b64 else (element.page_content if hasattr(element, "page_content") else str(element)))
+    
+    return Document(
+        page_content=content,
+        metadata={
+            "id": str(uuid.uuid4()),
+            "modality": modality,
+            "original": original,
+            "filename": filepath
+        }
+    )
 # Local Testing code
 async def main():
     start_time = time.perf_counter()
@@ -295,13 +171,15 @@ async def main():
     # 1. Capture the generator object
     doc_generator = load_pdf(file_path)
     
+    count = 0
     # 2. Consume the generator stream
     async for doc in doc_generator:
+        count+=1
         # Process or print individual docs as they arrive
         print(f"Ingested chunk: {doc.metadata['modality']} - {doc.page_content[:50]}...")
     
     endtime = time.perf_counter()
-    print(f"FINISHED: {endtime - start_time}")
+    print(f"FINISHED: {endtime - start_time} with count {count}")
 
 if __name__ == "__main__":
     asyncio.run(main())
