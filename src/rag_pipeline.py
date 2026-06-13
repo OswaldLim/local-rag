@@ -2,7 +2,12 @@ from qdrant_client import QdrantClient
 from qdrant_client.models import PointStruct
 from langchain_ollama import OllamaEmbeddings, OllamaLLM
 from langchain_qdrant import QdrantVectorStore
+from sentence_transformers import CrossEncoder
 import uuid
+
+import time
+
+reranker = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2', max_length=512)
 
 embedding_model = OllamaEmbeddings(
     model="nomic-embed-text",
@@ -10,7 +15,7 @@ embedding_model = OllamaEmbeddings(
 )
 
 llm = OllamaLLM(
-    model="llama3.2",
+    model="llama3.2:3b",
     base_url="http://ollama:11434",
     temperature=0.5
 )
@@ -18,7 +23,7 @@ llm = OllamaLLM(
 qdrant = QdrantClient(host="qdrant", port=6333)
 COLLECTION_NAME = "rag_docs"
 
-qdrant.delete_collection(collection_name=COLLECTION_NAME)
+# qdrant.delete_collection(collection_name=COLLECTION_NAME)
 
 if not qdrant.collection_exists(COLLECTION_NAME):
     qdrant.create_collection(
@@ -78,7 +83,8 @@ async def ingest_batch(text_chunks: list):
     qdrant.upsert(collection_name=COLLECTION_NAME, points=points)
 
 
-def query_rag(query: str, top_k: int = 10) -> str:
+def query_rag(query: str, top_k: int = 20) -> str:
+    start = time.perf_counter()
     # Embed query
     query_vector = embedding_model.embed_query(query)
     result = qdrant.query_points(
@@ -86,9 +92,13 @@ def query_rag(query: str, top_k: int = 10) -> str:
             query=query_vector,
             limit=top_k)
     print("FINISH QUERYing points!!!!!")
+    print(f"Retrieval took: {time.perf_counter() - start:.2f}s")
+
+    optimized_result = rerank_results(query, result.points, top_n=5)
+    print(f"Reranking took: {time.perf_counter() - start:.2f}s")
 
     # New version
-    context = format_context(result.points)
+    context = format_context(optimized_result)
 
     print(f"ContextSTTTTT\n\n{context}\n\n")
 
@@ -102,13 +112,14 @@ def query_rag(query: str, top_k: int = 10) -> str:
     
     Instructions:
     1. If the answer cannot be found in the context, say "I don't know."
-    2. Provide a comprehensive, detailed answer.
+    2. Provide a comprehensive and concise answer.
     3. At the end of your response, list all file names used in the final answer: "References: [filename1], [filename2]".
     
     Answer:
     """
 
     response = llm.invoke(prompt)
+    print(f"LLM Generation took: {time.perf_counter() - start:.2f}s")
 
     return response.content if hasattr(response, 'content') else response
 
@@ -136,3 +147,16 @@ def format_context(qdrant_points, include_tables=True, include_images_as_text=Tr
             lines.append(f"[{i}] IMAGE (from {filename}) — Summary: {content}")
             
     return "\n\n".join(lines)
+
+def rerank_results(query, points, top_n=5):
+    # 1. Prepare pairs for the model
+    pairs = [[query, p.payload.get("original", "")] for p in points]
+    
+    # 2. Get scores
+    scores = reranker.predict(pairs)
+    
+    # 3. Combine with original points and sort
+    scored_results = sorted(zip(points, scores), key=lambda x: x[1], reverse=True)
+    
+    # 4. Return top N points
+    return [item[0] for item in scored_results[:top_n]]
