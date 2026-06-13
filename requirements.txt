@@ -29,3 +29,4 @@ python-docx
 python-pptx
 pandas
 openpyxl
+sentence_transformers>=5.5.1
