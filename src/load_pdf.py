@@ -109,7 +109,12 @@ async def load_pdf(pdf_path):
     table_summary, tables_html = create_summary(tables=tables)
     # print(table_summary, "\n\n")
     # print(tables_html, "\n\n")
-    image_summary = await summarize_image(images=filtered_images)
+    image_summary = []
+    
+    async for summary in summarize_image(filtered_images):
+        image_summary.append(summary)
+        print(f"Received summary: {summary[:30]}...")
+
     # image_summary = []
 
     return format_to_document(texts, tables_html=tables_html, table_summaries=table_summary, image_summaries= image_summary, images=images, filepath = pdf_path)
@@ -239,7 +244,7 @@ async def summarize_image(images):
         Follow this structure: 
         1. Overview: What is this image? 
         2. Details: Key trends, data points, or labels (use bullet points). 
-        Keep the total response under 250 words and be concise.
+        Keep the total response under 200 words and be concise.
         """
 
     print(len(images))
@@ -258,6 +263,17 @@ async def summarize_image(images):
     # 3. Create the chain
     chain = prompt | model | StrOutputParser()
 
+    semaphore = asyncio.Semaphore(4)
+
+    async def _process_single(img):
+        async with semaphore:
+            return await chain.ainvoke({"image": img})
+        
+    tasks = [_process_single(img) for img in images]
+
+    for completed_task in asyncio.as_completed(tasks):
+        result = await completed_task
+        yield result
 
     # 4. Run the batch
     # Pass a list of dictionaries with the key 'image' containing your base64 strings
@@ -278,17 +294,17 @@ async def summarize_image(images):
     #         image_summaries.append(None)
 
     # parallel batching
-    image_summaries = await chain.abatch(
-        [{"image": img} for img in images],
-        config={'max_concurrency': 4}
-    )
+    # image_summaries = await chain.abatch(
+    #     [{"image": img} for img in images],
+    #     config={'max_concurrency': 4}
+    # )
 
-    print(f"\n\n{image_summaries}\n\n")
+    # print(f"\n\n{image_summaries}\n\n")
 
-    # image_summaries = chain.batch([{"image": img} for img in images], config={'max_concurrency': 1})
+    # # image_summaries = chain.batch([{"image": img} for img in images], config={'max_concurrency': 1})
 
-    print("finish summarising images")
-    return image_summaries
+    # print("finish summarising images")
+    # return image_summaries
 
 def create_summary(tables):
     # Prompt
