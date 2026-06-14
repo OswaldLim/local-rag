@@ -4,8 +4,10 @@ from langchain_ollama import OllamaEmbeddings, OllamaLLM
 from langchain_qdrant import QdrantVectorStore
 from sentence_transformers import CrossEncoder
 import uuid
+import asyncio
 
 import time
+import logging
 
 reranker = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2', max_length=512)
 
@@ -83,47 +85,94 @@ async def ingest_batch(text_chunks: list):
     qdrant.upsert(collection_name=COLLECTION_NAME, points=points)
 
 
-def query_rag(query: str, top_k: int = 20) -> str:
-    start = time.perf_counter()
-    # Embed query
-    query_vector = embedding_model.embed_query(query)
+async def get_rag_context_async(query: str, top_k: int = 20):
+    # Use loop.run_in_executor for CPU-bound tasks like embedding and reranking
+    loop = asyncio.get_running_loop()
+    
+    # Run synchronous operations in a thread pool so they don't block the event loop
+    query_vector = await loop.run_in_executor(None, embedding_model.embed_query, query)
+    
+    # If your qdrant client is the async version, use await qdrant.aquery_points(...)
     result = qdrant.query_points(
-            collection_name=COLLECTION_NAME, 
-            query=query_vector,
-            limit=top_k)
-    print("FINISH QUERYing points!!!!!")
-    print(f"Retrieval took: {time.perf_counter() - start:.2f}s")
+        collection_name=COLLECTION_NAME, 
+        query=query_vector,
+        limit=top_k
+    )
+    
+    optimized_result = await loop.run_in_executor(None, rerank_results, query, result.points, 5)
+    return format_context(optimized_result)
 
-    optimized_result = rerank_results(query, result.points, top_n=5)
-    print(f"Reranking took: {time.perf_counter() - start:.2f}s")
+# def build_prompt(query: str, top_k: int = 20) -> str:
+#     start = time.perf_counter()
+#     # Embed query
+#     query_vector = embedding_model.embed_query(query)
+#     result = qdrant.query_points(
+#             collection_name=COLLECTION_NAME, 
+#             query=query_vector,
+#             limit=top_k)
+#     print("FINISH QUERYing points!!!!!")
+#     print(f"Retrieval took: {time.perf_counter() - start:.2f}s")
 
-    # New version
-    context = format_context(optimized_result)
+#     optimized_result = rerank_results(query, result.points, top_n=5)
+#     print(f"Reranking took: {time.perf_counter() - start:.2f}s")
 
-    print(f"ContextSTTTTT\n\n{context}\n\n")
+#     # New version
+#     context = format_context(optimized_result)
+
+#     # print(f"ContextSTTTTT\n\n{context}\n\n")
+
+#     prompt = f"""
+#     You are an expert assistant. Answer the question using ONLY the context provided below.
+    
+#     Context:
+#     {context}
+    
+#     Question: {query}
+    
+#     Instructions:
+#     1. If the answer cannot be found in the context, say "I don't know."
+#     2. Provide a comprehensive and concise answer.
+#     3. At the end of your response, list all file names used in the final answer: "References: [filename1], [filename2]".
+    
+#     Answer:
+#     """
+
+#     response = llm.invoke(prompt)
+#     print(f"LLM Generation took: {time.perf_counter() - start:.2f}s")
+
+#     return response.content if hasattr(response, 'content') else response
+
+async def stream_rag_response(prompt):
+    start_time = time.perf_counter()
+
+    context = await get_rag_context_async(prompt)
 
     prompt = f"""
-    You are an expert assistant. Answer the question using ONLY the context provided below.
-    
-    Context:
-    {context}
-    
-    Question: {query}
-    
-    Instructions:
-    1. If the answer cannot be found in the context, say "I don't know."
-    2. Provide a comprehensive and concise answer.
-    3. At the end of your response, list all file names used in the final answer: "References: [filename1], [filename2]".
-    
-    Answer:
+        You are an expert assistant. Answer the question using ONLY the context provided below.
+        
+        Context:
+        {context}
+        
+        Question: {prompt}
+        
+        Instructions:
+        1. If the answer cannot be found in the context, say "I don't know."
+        2. Provide a comprehensive and concise answer.
+        3. At the end of your response, list all file names used in the final answer: "References: [filename1], [filename2]".
+        
+        Answer:
     """
-
-    response = llm.invoke(prompt)
-    print(f"LLM Generation took: {time.perf_counter() - start:.2f}s")
-
-    return response.content if hasattr(response, 'content') else response
-
-
+    
+    first_token_logged = False
+    # .stream() returns an async generator
+    async for chunk in llm.astream(prompt):
+        if not first_token_logged:
+            ttft = time.perf_counter() - start_time
+            logging.info(f"Time to First Token (TTFT): {ttft:.2f}s")
+            first_token_logged = True
+        # Access the content depending on the model's structure
+        content = chunk.content if hasattr(chunk, 'content') else str(chunk)
+        yield content
 
 def format_context(qdrant_points, include_tables=True, include_images_as_text=True):
     """

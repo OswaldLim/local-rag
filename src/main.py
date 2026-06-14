@@ -1,7 +1,15 @@
 from fastapi import FastAPI, UploadFile, File, Form, BackgroundTasks
+from fastapi.responses import StreamingResponse
 from .utils import load_document, chunk_text
-from .rag_pipeline import ingest_with_buffer, query_rag
+from .rag_pipeline import ingest_with_buffer, stream_rag_response
+from .telegram_utils import stream_to_telegram
+from pydantic import BaseModel
 import uuid
+
+class QueryRequest(BaseModel):
+    chat_id: int
+    draft_id: int
+    question: str
 
 app = FastAPI(title="Local RAG API")
 
@@ -22,9 +30,22 @@ async def ingest(background_tasks: BackgroundTasks, file: UploadFile = File(...)
 
 # ---- Query endpoint ----
 @app.post("/query")
-async def query(question: str = Form(...)):
-    answer = query_rag(question)
-    return {"answer": answer}
+async def query(request: QueryRequest):
+    # answer = build_prompt(request.question)
+    
+
+    # return StreamingResponse(
+    #     stream_rag_response(answer), 
+    #     media_type="text/plain" # or "text/event-stream"
+    # )
+    print("Started streaming")
+    text = await stream_to_telegram(
+        chat_id=request.chat_id, 
+        draft_id=request.draft_id, 
+        llm_stream=stream_rag_response(request.question)
+    )
+
+    return {"answer": text}
 
 @app.get("/status/{task_id}")
 async def get_status(task_id: str):

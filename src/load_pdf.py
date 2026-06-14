@@ -13,7 +13,7 @@ import io
 
 import time
 
-URL = "http://localhost:11434"
+URL = "http://ollama:11434"
 
 llm = OllamaLLM(
     model="llama3.2",
