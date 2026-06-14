@@ -18,3 +18,5 @@ Thumbs.db
 
 # Caches
 hf_cache/
+
+.env
