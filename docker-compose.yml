@@ -60,6 +60,13 @@ services:
       - OLLAMA_NUM_PARALLEL=4
       - OLLAMA_MAX_LOADED_MODELS=2
       - OLLAMA_KEEP_ALIVE=-1 # Keeps models in VRAM indefinitely
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1 # Or "all" to use every available GPU
+              capabilities: [gpu]
     command: ["serve"]
 
 volumes:
