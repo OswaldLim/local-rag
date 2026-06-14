@@ -150,7 +150,7 @@ async def process_table_async(table_element) -> tuple[str, str]:
 # Used for formatting documents
 def format_as_document(element, summary=None, html=None, b64=None, modality="text", filepath=""):
     content = summary if summary else (element.page_content if hasattr(element, "page_content") else str(element))
-    original = html if html else (b64 if b64 else (element.page_content if hasattr(element, "page_content") else str(element)))
+    original = html if html else ("N/A" if b64 else (element.page_content if hasattr(element, "page_content") else str(element)))
     
     return Document(
         page_content=content,
