@@ -31,13 +31,6 @@ async def ingest(background_tasks: BackgroundTasks, file: UploadFile = File(...)
 # ---- Query endpoint ----
 @app.post("/query")
 async def query(request: QueryRequest):
-    # answer = build_prompt(request.question)
-    
-
-    # return StreamingResponse(
-    #     stream_rag_response(answer), 
-    #     media_type="text/plain" # or "text/event-stream"
-    # )
     print("Started streaming")
     text = await stream_to_telegram(
         chat_id=request.chat_id, 
@@ -61,10 +54,6 @@ async def process_ingestion_task(task_id, temp_file):
 
         print("Finish loading document")
 
-        # async for doc in doc_stream:
-        # # Assuming doc is the content/page/chunk you yielded
-        #     print(f"Processed document part: {doc}")
-
         async for count in ingest_with_buffer(doc_stream):
             print(f"Ingestion finished. Total: {count}")
         tasks[task_id] = "completed"
@@ -73,13 +62,3 @@ async def process_ingestion_task(task_id, temp_file):
         tasks[task_id] = "failed"
         print(str(e))
         return {"error": str(e)}
-
-
-    # pages = await load_document(temp_file)     
-    # all_chunks = []
-    # if temp_file.endswith(".pdf"):
-    #     count = await ingest_document(pages)
-    # else:
-    #     for page in pages:
-    #         all_chunks.extend(chunk_text(page))
-    #     count = await ingest_document(all_chunks)

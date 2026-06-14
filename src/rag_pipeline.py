@@ -9,6 +9,7 @@ import asyncio
 import time
 import logging
 
+# Initializing Models
 reranker = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2', max_length=512)
 
 embedding_model = OllamaEmbeddings(
@@ -25,8 +26,10 @@ llm = OllamaLLM(
 qdrant = QdrantClient(host="qdrant", port=6333)
 COLLECTION_NAME = "rag_docs"
 
+# Might be used if i want to use clean qdrant database
 # qdrant.delete_collection(collection_name=COLLECTION_NAME)
 
+# Auto creates database if it doesn't exist
 if not qdrant.collection_exists(COLLECTION_NAME):
     qdrant.create_collection(
         collection_name=COLLECTION_NAME,
@@ -40,6 +43,7 @@ vector_store = QdrantVectorStore(
     embedding=embedding_model
 )
 
+# Ingestion pipeline
 async def ingest_with_buffer(document_generator, buffer_size=10):
     buffer = []
     count = 0
@@ -85,6 +89,7 @@ async def ingest_batch(text_chunks: list):
     qdrant.upsert(collection_name=COLLECTION_NAME, points=points)
 
 
+# Querying Pipeline
 async def get_rag_context_async(query: str, top_k: int = 20):
     # Use loop.run_in_executor for CPU-bound tasks like embedding and reranking
     loop = asyncio.get_running_loop()
@@ -101,46 +106,6 @@ async def get_rag_context_async(query: str, top_k: int = 20):
     
     optimized_result = await loop.run_in_executor(None, rerank_results, query, result.points, 5)
     return format_context(optimized_result)
-
-# def build_prompt(query: str, top_k: int = 20) -> str:
-#     start = time.perf_counter()
-#     # Embed query
-#     query_vector = embedding_model.embed_query(query)
-#     result = qdrant.query_points(
-#             collection_name=COLLECTION_NAME, 
-#             query=query_vector,
-#             limit=top_k)
-#     print("FINISH QUERYing points!!!!!")
-#     print(f"Retrieval took: {time.perf_counter() - start:.2f}s")
-
-#     optimized_result = rerank_results(query, result.points, top_n=5)
-#     print(f"Reranking took: {time.perf_counter() - start:.2f}s")
-
-#     # New version
-#     context = format_context(optimized_result)
-
-#     # print(f"ContextSTTTTT\n\n{context}\n\n")
-
-#     prompt = f"""
-#     You are an expert assistant. Answer the question using ONLY the context provided below.
-    
-#     Context:
-#     {context}
-    
-#     Question: {query}
-    
-#     Instructions:
-#     1. If the answer cannot be found in the context, say "I don't know."
-#     2. Provide a comprehensive and concise answer.
-#     3. At the end of your response, list all file names used in the final answer: "References: [filename1], [filename2]".
-    
-#     Answer:
-#     """
-
-#     response = llm.invoke(prompt)
-#     print(f"LLM Generation took: {time.perf_counter() - start:.2f}s")
-
-#     return response.content if hasattr(response, 'content') else response
 
 async def stream_rag_response(prompt):
     start_time = time.perf_counter()
@@ -174,6 +139,7 @@ async def stream_rag_response(prompt):
         content = chunk.content if hasattr(chunk, 'content') else str(chunk)
         yield content
 
+# UTILS
 def format_context(qdrant_points, include_tables=True, include_images_as_text=True):
     """
     Tailored for Qdrant payload structure.
