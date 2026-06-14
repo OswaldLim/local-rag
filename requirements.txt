@@ -30,3 +30,6 @@ python-pptx
 pandas
 openpyxl
 sentence_transformers>=5.5.1
+
+#telegram
+aiogram>=3.28.2
