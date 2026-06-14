@@ -19,6 +19,8 @@ services:
     environment:
       # Explicitly set the cache directory
       - HF_HOME=/root/.cache/huggingface
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - HF_TOKEN=${HF_TOKEN}
 
   n8n:
     image: n8nio/n8n
